@@ -1,0 +1,22 @@
+{
+  "name": "@company-brain/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint": "./eslint/index.mjs",
+    "./tsconfig/node": "./tsconfig/node.json",
+    "./tsconfig/next": "./tsconfig/next.json"
+  },
+  "scripts": {
+    "lint": "echo 'config package — nothing to lint' && exit 0",
+    "typecheck": "echo 'config package — nothing to typecheck' && exit 0",
+    "build": "echo 'config package — nothing to build' && exit 0",
+    "test": "echo 'no tests' && exit 0"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.24.0",
+    "eslint-config-prettier": "^10.1.2",
+    "typescript-eslint": "^8.30.0"
+  }
+}

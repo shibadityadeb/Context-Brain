@@ -1,0 +1,17 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'services/*'
+
+# Single ioredis instance across the workspace so BullMQ and our own code
+# share connection types.
+overrides:
+  ioredis: ^5.11.1
+
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - esbuild
+  - msgpackr-extract
+  - prisma
+  - sharp

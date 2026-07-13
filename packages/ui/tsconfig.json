@@ -1,0 +1,7 @@
+{
+  "extends": "@company-brain/config/tsconfig/next",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,182 @@
+// Company Brain — Phase 0 core schema.
+// Generic identity / tenancy / audit primitives only. Domain tables
+// (meetings, documents, tasks, …) arrive in later phases as new models
+// that reference these.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  SERVICE
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         RoleName  @default(EMPLOYEE)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  memberships Membership[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+  apiKeys     APIKey[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([email])
+  @@map("users")
+}
+
+model Organization {
+  id   String @id @default(uuid()) @db.Uuid
+  name String
+  slug String @unique
+
+  memberships Membership[]
+  projects    Project[]
+  apiKeys     APIKey[]
+  auditLogs   AuditLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("organizations")
+}
+
+model Project {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@map("projects")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        RoleName @unique
+  description String?
+  // Permission strings, e.g. "project:manage". Future phases append their
+  // own permissions without schema changes.
+  permissions String[]
+
+  memberships Membership[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("roles")
+}
+
+model Membership {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roleId         String       @db.Uuid
+  orgRole        Role         @relation(fields: [roleId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+model Session {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // SHA-256 hash of the refresh token — raw tokens are never stored.
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model APIKey {
+  id String @id @default(uuid()) @db.Uuid
+
+  name String
+  // First characters of the key, shown in UIs for identification.
+  prefix     String    @unique
+  keyHash    String    @unique
+  scopes     String[]
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+
+  userId         String?       @db.Uuid
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organizationId String?       @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@map("api_keys")
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  // e.g. "auth.login", "user.update" — namespaced per module.
+  action     String
+  resource   String?
+  resourceId String? @db.Uuid
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+
+  actorId        String? @db.Uuid
+  actor          User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  organizationId String? @db.Uuid
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

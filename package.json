@@ -1,0 +1,45 @@
+{
+  "name": "company-brain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered Company Brain — Phase 0 platform foundation",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker dev",
+    "dev:api": "pnpm --filter @company-brain/api dev",
+    "dev:web": "pnpm --filter @company-brain/web dev",
+    "dev:worker": "pnpm --filter @company-brain/worker dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "infra:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
+    "infra:destroy": "docker compose -f infrastructure/docker/docker-compose.yml down -v",
+    "db:generate": "pnpm --filter @company-brain/api db:generate",
+    "db:migrate": "pnpm --filter @company-brain/api db:migrate",
+    "db:seed": "pnpm --filter @company-brain/api db:seed",
+    "db:studio": "pnpm --filter @company-brain/api db:studio",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.0",
+    "prettier": "^3.5.3"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

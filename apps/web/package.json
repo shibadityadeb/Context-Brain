@@ -1,0 +1,34 @@
+{
+  "name": "@company-brain/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests' && exit 0"
+  },
+  "dependencies": {
+    "@company-brain/types": "workspace:*",
+    "@company-brain/ui": "workspace:*",
+    "lucide-react": "^0.488.0",
+    "next": "^15.3.0",
+    "next-themes": "^0.4.6",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@company-brain/config": "workspace:*",
+    "@types/node": "^22.14.1",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.24.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.8.3"
+  }
+}
