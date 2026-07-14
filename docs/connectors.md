@@ -67,30 +67,38 @@ Key design points:
   policies (revoked grants fail fast; rate limits back off).
 - **`ConnectorRegistry`** — the only place providers are wired in.
 
-## OAuth 2.0 flow (Google)
+## OAuth 2.0 flow (Google) — sign-in IS the connection
+
+There is no manual connect step: signing into the brain with Google is
+the only way in, and the same consent grants every workspace scope, so
+the connection is established automatically for anyone who signs in.
 
 ```
-Admin clicks "Connect Google Workspace"
-  │ POST /api/v1/connectors/google/connect (JWT)
-  │   → signed state (HMAC, org+user+nonce, 15 min TTL)
+User clicks "Continue with Google" on /login
+  │ GET /api/v1/auth/google (no JWT — this IS the sign-in)
+  │   → signed state (HMAC, nonce, 15 min TTL)
   │   → consent URL: access_type=offline, prompt=consent,
   │     include_granted_scopes=true, 10 read-only scopes
   ▼
-Google consent screen ──► GET /api/v1/connectors/google/callback?code&state
-  │   1. verifyState (CSRF)                 4. OAuthCredential created:
-  │   2. exchange code → tokens                refresh token AES-256-GCM
-  │   3. userinfo → workspace identity         encrypted at rest
+Google consent screen ──► GET /api/v1/auth/google/callback?code&state
+  │   1. verifyState (CSRF)              4. organization resolved from the
+  │   2. exchange code → tokens             workspace domain (hd) — created
+  │   3. userinfo → user upserted           on first sign-in, colleagues
+  │      (first user becomes ADMIN)         auto-join the same org
+  │                                      5. OAuthCredential created:
+  │                                         refresh token AES-256-GCM
   ▼
 workspaceInitialSyncWorkflow started (task queue brain-connectors)
 incrementalSyncWorkflow started with cron */15 * * * *
   ▼
-browser redirected to /connectors?connected=<id>
+refresh cookie set, browser redirected to /auth/callback → dashboard
 ```
 
-Reconnect uses the same flow — the existing connector row is reused, old
-credentials are marked REVOKED, a new one becomes ACTIVE. Disconnect
-revokes at Google, marks the credential REVOKED, terminates the cron
-workflow and emits `connector.disconnected`.
+Every subsequent sign-in re-establishes the connection — the existing
+connector row is reused, old credentials are marked REVOKED, a new one
+becomes ACTIVE. Disconnect revokes at Google, marks the credential
+REVOKED, terminates the cron workflow and emits
+`connector.disconnected`; signing in again reconnects.
 
 ## Synchronization
 
@@ -186,8 +194,8 @@ Types: `connector.connected|disconnected|error`,
 
 | Method | Path                                   | Description                      |
 | ------ | -------------------------------------- | -------------------------------- |
-| POST   | `/api/v1/connectors/google/connect`    | returns Google consent URL       |
-| GET    | `/api/v1/connectors/google/callback`   | OAuth redirect target            |
+| GET    | `/api/v1/auth/google`                  | sign in + auto-connect (consent) |
+| GET    | `/api/v1/auth/google/callback`         | OAuth redirect target            |
 | POST   | `/api/v1/connectors/google/disconnect` | revoke + disconnect              |
 | GET    | `/api/v1/connectors`                   | list org connectors              |
 | GET    | `/api/v1/connectors/:id`               | detail, cursors, resource counts |
@@ -200,7 +208,7 @@ Types: `connector.connected|disconnected|error`,
 
 ```bash
 # Configure OAuth (console.cloud.google.com → OAuth client, Web application,
-# redirect URI = http://localhost:4000/api/v1/connectors/google/callback)
+# redirect URI = http://localhost:4000/api/v1/auth/google/callback)
 GOOGLE_CLIENT_ID=…           # .env
 GOOGLE_CLIENT_SECRET=…
 TOKEN_ENCRYPTION_KEY=$(openssl rand -hex 32)

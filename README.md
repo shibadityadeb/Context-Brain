@@ -25,7 +25,7 @@ platform without refactoring.
 ```
 apps/
   api/            Fastify API (plugins, modules, services, middleware)
-  web/            Next.js dashboard (login, register, dashboard, profile, settings)
+  web/            Next.js dashboard (Google sign-in, dashboard, profile, settings)
 packages/
   activities/     Temporal activity implementations (all side effects)
   auth/           OAuth2 helpers + AES-256-GCM token encryption
@@ -86,7 +86,7 @@ pnpm dev
 | http://localhost:8233           | Temporal UI                  |
 | http://localhost:4100/health    | Temporal worker status       |
 
-The **first registered user automatically becomes ADMIN**.
+Sign-in is **Google OAuth only** — one consent both authenticates you and auto-connects your Google Workspace (accounts and organizations are created on the fly; the first user becomes ADMIN).
 
 ## Common commands
 
@@ -105,25 +105,25 @@ pnpm infra:destroy  # stop containers and delete volumes
 
 ## API surface (Phase 0)
 
-| Method | Path                             | Auth                   | Description                           |
-| ------ | -------------------------------- | ---------------------- | ------------------------------------- |
-| GET    | `/health`                        | –                      | Aggregate health of all dependencies  |
-| GET    | `/health/live`                   | –                      | Liveness probe                        |
-| GET    | `/health/ready`                  | –                      | Readiness probe (DB + Redis)          |
-| POST   | `/api/v1/auth/register`          | –                      | Create account (+ optional org)       |
-| POST   | `/api/v1/auth/login`             | –                      | Email/password login                  |
-| POST   | `/api/v1/auth/refresh`           | refresh cookie/body    | Rotate refresh token                  |
-| POST   | `/api/v1/auth/logout`            | refresh cookie/body    | Revoke session                        |
-| GET    | `/api/v1/users/me`               | Bearer                 | Current user profile                  |
-| PATCH  | `/api/v1/users/me`               | Bearer                 | Update profile                        |
-| GET    | `/api/v1/users`                  | Bearer + `user:manage` | List users (admin)                    |
-| POST   | `/api/v1/workflows/hello`        | Bearer                 | Start HelloWorkflow (demo)            |
-| POST   | `/api/v1/workflows/health-check` | Bearer                 | Run HealthCheckWorkflow, await report |
-| POST   | `/api/v1/workflows/storage`      | Bearer                 | Run StorageWorkflow (file upload)     |
-| GET    | `/api/v1/workflows/status`       | Bearer                 | Temporal server + worker status       |
-| GET    | `/api/v1/workflows/:id`          | Bearer                 | Describe a workflow execution         |
-| GET    | `/api/v1/workflows/:id/status`   | Bearer                 | Query a HelloWorkflow phase           |
-| POST   | `/api/v1/workflows/:id/skip`     | Bearer                 | Signal HelloWorkflow to finish early  |
+| Method | Path                             | Auth                   | Description                            |
+| ------ | -------------------------------- | ---------------------- | -------------------------------------- |
+| GET    | `/health`                        | –                      | Aggregate health of all dependencies   |
+| GET    | `/health/live`                   | –                      | Liveness probe                         |
+| GET    | `/health/ready`                  | –                      | Readiness probe (DB + Redis)           |
+| GET    | `/api/v1/auth/google`            | –                      | Sign in with Google (redirect)         |
+| GET    | `/api/v1/auth/google/callback`   | signed state           | OAuth callback: session + auto-connect |
+| POST   | `/api/v1/auth/refresh`           | refresh cookie/body    | Rotate refresh token                   |
+| POST   | `/api/v1/auth/logout`            | refresh cookie/body    | Revoke session                         |
+| GET    | `/api/v1/users/me`               | Bearer                 | Current user profile                   |
+| PATCH  | `/api/v1/users/me`               | Bearer                 | Update profile                         |
+| GET    | `/api/v1/users`                  | Bearer + `user:manage` | List users (admin)                     |
+| POST   | `/api/v1/workflows/hello`        | Bearer                 | Start HelloWorkflow (demo)             |
+| POST   | `/api/v1/workflows/health-check` | Bearer                 | Run HealthCheckWorkflow, await report  |
+| POST   | `/api/v1/workflows/storage`      | Bearer                 | Run StorageWorkflow (file upload)      |
+| GET    | `/api/v1/workflows/status`       | Bearer                 | Temporal server + worker status        |
+| GET    | `/api/v1/workflows/:id`          | Bearer                 | Describe a workflow execution          |
+| GET    | `/api/v1/workflows/:id/status`   | Bearer                 | Query a HelloWorkflow phase            |
+| POST   | `/api/v1/workflows/:id/skip`     | Bearer                 | Signal HelloWorkflow to finish early   |
 
 Every endpoint returns the standard envelope:
 

@@ -2,8 +2,7 @@ import { ROLE_PERMISSIONS, type RoleName, type UserProfile } from '@company-brai
 import { durationToSeconds } from '@company-brain/utils';
 import type { User } from '@prisma/client';
 import { config } from '../../config/index.js';
-import { ConflictError, UnauthorizedError } from '../../utils/errors.js';
-import { hashPassword, verifyPassword } from '../../utils/password.js';
+import { UnauthorizedError } from '../../utils/errors.js';
 import {
   hashToken,
   signAccessToken,
@@ -11,7 +10,6 @@ import {
   verifyRefreshToken,
 } from '../../utils/tokens.js';
 import type { AuthRepository } from './auth.repository.js';
-import type { LoginBody, RegisterBody } from './auth.schemas.js';
 
 export interface AuthResult {
   user: UserProfile;
@@ -24,49 +22,44 @@ interface RequestMeta {
   userAgent?: string;
 }
 
+export interface GoogleProfile {
+  email: string;
+  name?: string;
+}
+
 export class AuthService {
   constructor(private readonly repo: AuthRepository) {}
 
-  async register(body: RegisterBody, meta: RequestMeta): Promise<AuthResult> {
-    const existing = await this.repo.findUserByEmail(body.email);
-    if (existing) throw new ConflictError('An account with this email already exists');
+  /**
+   * Google OAuth is the only way in: the verified Google profile either
+   * matches an existing account or creates one on the spot.
+   */
+  async loginWithGoogle(profile: GoogleProfile, meta: RequestMeta): Promise<AuthResult> {
+    let user = await this.repo.findUserByEmail(profile.email);
 
-    // Bootstrap: the very first user becomes ADMIN.
-    const isFirstUser = (await this.repo.countUsers()) === 0;
-    const role: RoleName = isFirstUser ? 'ADMIN' : 'EMPLOYEE';
-
-    const user = await this.repo.createUser({
-      email: body.email,
-      passwordHash: await hashPassword(body.password),
-      name: body.name,
-      role,
-    });
-
-    if (body.organizationName) {
-      await this.repo.createOrganizationWithMembership(user.id, body.organizationName, 'ADMIN');
+    if (!user) {
+      // Bootstrap: the very first user becomes ADMIN.
+      const isFirstUser = (await this.repo.countUsers()) === 0;
+      const role: RoleName = isFirstUser ? 'ADMIN' : 'EMPLOYEE';
+      user = await this.repo.createUser({
+        email: profile.email,
+        name: profile.name ?? profile.email.split('@')[0]!,
+        role,
+      });
+      await this.repo.writeAuditLog({
+        action: 'auth.register_google',
+        actorId: user.id,
+        resource: 'user',
+        resourceId: user.id,
+        ...meta,
+      });
     }
 
-    await this.repo.writeAuditLog({
-      action: 'auth.register',
-      actorId: user.id,
-      resource: 'user',
-      resourceId: user.id,
-      ...meta,
-    });
-
-    return this.issueTokens(user, meta);
-  }
-
-  async login(body: LoginBody, meta: RequestMeta): Promise<AuthResult> {
-    const user = await this.repo.findUserByEmail(body.email);
-    // Same error for unknown email and wrong password — no user enumeration.
-    if (!user || !user.isActive || !(await verifyPassword(body.password, user.passwordHash))) {
-      throw new UnauthorizedError('Invalid email or password');
-    }
+    if (!user.isActive) throw new UnauthorizedError('Account is not active');
 
     await this.repo.updateLastLogin(user.id);
     await this.repo.writeAuditLog({
-      action: 'auth.login',
+      action: 'auth.login_google',
       actorId: user.id,
       resource: 'user',
       resourceId: user.id,

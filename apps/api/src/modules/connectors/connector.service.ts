@@ -1,27 +1,13 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { Redis } from 'ioredis';
-import {
-  buildAuthorizationUrl,
-  encryptSecret,
-  decryptSecret,
-  exchangeAuthorizationCode,
-  parseEncryptionKey,
-  revokeToken,
-  signState,
-  verifyState,
-  type OAuthClientConfig,
-} from '@company-brain/auth';
-import {
-  GOOGLE_AUTH_PARAMS,
-  GOOGLE_OAUTH_ENDPOINTS,
-  GOOGLE_PROVIDER,
-  GOOGLE_SCOPES,
-} from '@company-brain/connector-google';
+import { encryptSecret, decryptSecret, revokeToken } from '@company-brain/auth';
+import { GOOGLE_PROVIDER, GOOGLE_SCOPES } from '@company-brain/connector-google';
 import { EventBus } from '@company-brain/events';
 import { TASK_QUEUES, WORKFLOW_TYPES } from '@company-brain/workflows';
 import type { TemporalService } from '../../services/temporal.service.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 import { config } from '../../config/index.js';
+import { connectorEncryptionKey, googleOAuthConfig } from './google-oauth.js';
 
 const INCREMENTAL_CRON = '*/15 * * * *';
 
@@ -43,23 +29,6 @@ export class ConnectorApiService {
     this.events = new EventBus(deps.redis);
   }
 
-  private googleOAuth(): OAuthClientConfig {
-    const { clientId, clientSecret, redirectUri } = config.connectors.google;
-    if (!clientId || !clientSecret) {
-      throw new BadRequestError(
-        'Google OAuth is not configured — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET',
-      );
-    }
-    return { clientId, clientSecret, redirectUri, endpoints: GOOGLE_OAUTH_ENDPOINTS };
-  }
-
-  private encryptionKey(): Buffer {
-    if (!config.connectors.tokenEncryptionKey) {
-      throw new BadRequestError('TOKEN_ENCRYPTION_KEY is not configured');
-    }
-    return parseEncryptionKey(config.connectors.tokenEncryptionKey);
-  }
-
   async resolveOrganization(userId: string): Promise<string> {
     const membership = await this.deps.prisma.membership.findFirst({
       where: { userId, deletedAt: null },
@@ -79,47 +48,30 @@ export class ConnectorApiService {
     return connector;
   }
 
-  // ── OAuth connect / callback / disconnect ─────────────────────
+  // ── Connection provisioning / disconnect ──────────────────────
 
-  buildGoogleConnectUrl(userId: string, organizationId: string): { authUrl: string } {
-    const oauth = this.googleOAuth();
-    this.encryptionKey(); // fail early if encryption is not configured
-    const state = signState(
-      { organizationId, userId, provider: GOOGLE_PROVIDER },
-      config.connectors.stateSecret,
-    );
-    const authUrl = buildAuthorizationUrl(oauth, {
-      scopes: [...GOOGLE_SCOPES],
-      state,
-      extraParams: { ...GOOGLE_AUTH_PARAMS },
-    });
-    return { authUrl };
-  }
-
-  async handleGoogleCallback(code: string, state: string): Promise<{ connectorId: string }> {
-    const payload = verifyState(state, config.connectors.stateSecret);
-    const oauth = this.googleOAuth();
-    const tokens = await exchangeAuthorizationCode(oauth, code);
-    if (!tokens.refreshToken) {
-      throw new BadRequestError(
-        'Google did not return a refresh token — remove prior access at myaccount.google.com/permissions and retry',
-      );
-    }
-
-    // Identify the connecting account.
-    const userinfo = (await (
-      await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-        headers: { authorization: `Bearer ${tokens.accessToken}` },
-      })
-    ).json()) as { email?: string; hd?: string; name?: string };
-
+  /**
+   * Called from the Google sign-in callback: every OAuth sign-in also
+   * (re)establishes the organization's workspace connection and starts
+   * syncing — there is no separate manual connect step.
+   */
+  async establishGoogleConnection(input: {
+    organizationId: string;
+    userId: string;
+    refreshToken: string;
+    accessTokenExpiresAt: Date;
+    tokenType: string;
+    scope?: string;
+    profile: { email?: string; hd?: string; name?: string };
+  }): Promise<{ connectorId: string }> {
+    const { organizationId, userId, profile } = input;
     const { prisma } = this.deps;
-    const domain = userinfo.hd ?? userinfo.email?.split('@')[1] ?? null;
+    const domain = profile.hd ?? profile.email?.split('@')[1] ?? null;
 
-    // Reconnect flow: reuse the org's existing Google connector row.
+    // Re-auth flow: reuse the org's existing Google connector row.
     let connector = await prisma.connector.findFirst({
       where: {
-        organizationId: payload.organizationId,
+        organizationId,
         provider: 'GOOGLE_WORKSPACE',
         deletedAt: null,
       },
@@ -139,13 +91,13 @@ export class ConnectorApiService {
           provider: 'GOOGLE_WORKSPACE',
           name: domain ? `Google Workspace (${domain})` : 'Google Workspace',
           status: 'PENDING',
-          organizationId: payload.organizationId,
-          ownerId: payload.userId,
+          organizationId,
+          ownerId: userId,
         },
       });
       await prisma.organizationConnector.create({
         data: {
-          organizationId: payload.organizationId,
+          organizationId,
           connectorId: connector.id,
           status: 'PENDING',
         },
@@ -155,12 +107,12 @@ export class ConnectorApiService {
     await prisma.oAuthCredential.create({
       data: {
         connectorId: connector.id,
-        organizationId: payload.organizationId,
-        userEmail: userinfo.email ?? null,
-        scopes: tokens.scope?.split(' ') ?? [...GOOGLE_SCOPES],
-        encryptedRefreshToken: encryptSecret(tokens.refreshToken, this.encryptionKey()),
-        accessTokenExpiresAt: new Date(Date.now() + tokens.expiresInSeconds * 1000),
-        tokenType: tokens.tokenType,
+        organizationId,
+        userEmail: profile.email ?? null,
+        scopes: input.scope?.split(' ') ?? [...GOOGLE_SCOPES],
+        encryptedRefreshToken: encryptSecret(input.refreshToken, connectorEncryptionKey()),
+        accessTokenExpiresAt: input.accessTokenExpiresAt,
+        tokenType: input.tokenType,
         status: 'ACTIVE',
       },
     });
@@ -168,19 +120,19 @@ export class ConnectorApiService {
     await prisma.connectorLog.create({
       data: {
         connectorId: connector.id,
-        organizationId: payload.organizationId,
+        organizationId,
         level: 'INFO',
         event: 'oauth.connected',
-        message: `Google Workspace connected by ${userinfo.email ?? 'unknown'}`,
-        context: { domain, scopes: tokens.scope } as Prisma.InputJsonValue,
+        message: `Google Workspace connected by ${profile.email ?? 'unknown'}`,
+        context: { domain, scopes: input.scope } as Prisma.InputJsonValue,
       },
     });
     await this.events.publish({
       type: 'connector.connected',
-      organizationId: payload.organizationId,
+      organizationId,
       connectorId: connector.id,
       provider: GOOGLE_PROVIDER,
-      payload: { domain, adminEmail: userinfo.email },
+      payload: { domain, adminEmail: profile.email },
     });
 
     // Kick off the initial full sync + the continuous incremental cron.
@@ -213,8 +165,11 @@ export class ConnectorApiService {
     });
     if (credential) {
       try {
-        const refreshToken = decryptSecret(credential.encryptedRefreshToken, this.encryptionKey());
-        await revokeToken(this.googleOAuth(), refreshToken);
+        const refreshToken = decryptSecret(
+          credential.encryptedRefreshToken,
+          connectorEncryptionKey(),
+        );
+        await revokeToken(googleOAuthConfig(), refreshToken);
       } catch {
         // Provider-side revocation is best effort; local state is truth.
       }

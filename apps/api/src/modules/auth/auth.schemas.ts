@@ -1,21 +1,11 @@
 import { z } from 'zod';
 
-export const registerBodySchema = z.object({
-  email: z.string().email(),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(128, 'Password must be at most 128 characters'),
-  name: z.string().min(1).max(100),
-  organizationName: z.string().min(1).max(100).optional(),
+export const oauthCallbackQuerySchema = z.object({
+  code: z.string().optional(),
+  state: z.string().optional(),
+  error: z.string().optional(),
 });
-export type RegisterBody = z.infer<typeof registerBodySchema>;
-
-export const loginBodySchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
-export type LoginBody = z.infer<typeof loginBodySchema>;
+export type OAuthCallbackQuery = z.infer<typeof oauthCallbackQuerySchema>;
 
 export const refreshBodySchema = z.object({
   // Optional: browser clients send the httpOnly cookie instead.

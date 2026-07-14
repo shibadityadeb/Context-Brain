@@ -4,14 +4,15 @@ import { durationToSeconds } from '@company-brain/utils';
 import { config } from '../../config/index.js';
 import { UnauthorizedError } from '../../utils/errors.js';
 import { ok } from '../../utils/response.js';
+import { ConnectorApiService } from '../connectors/connector.service.js';
 import { AuthRepository } from './auth.repository.js';
 import { AuthService } from './auth.service.js';
+import { GoogleSignInService } from './google-signin.service.js';
 import {
   authResponseSchema,
-  loginBodySchema,
   messageResponseSchema,
+  oauthCallbackQuerySchema,
   refreshBodySchema,
-  registerBodySchema,
 } from './auth.schemas.js';
 
 const REFRESH_COOKIE = 'brain_refresh_token';
@@ -32,41 +33,62 @@ function requestMeta(request: FastifyRequest): { ipAddress: string; userAgent?: 
 
 export default async function authRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
-  const service = new AuthService(new AuthRepository(app.prisma));
+  const repo = new AuthRepository(app.prisma);
+  const service = new AuthService(repo);
+  const googleSignIn = new GoogleSignInService(
+    service,
+    repo,
+    new ConnectorApiService({ prisma: app.prisma, temporal: app.temporal, redis: app.redis }),
+  );
 
-  app.post(
-    '/register',
+  // ── Google OAuth — the only way into the brain ────────────────
+  // One consent screen grants identity + every workspace scope; the
+  // callback signs the user in AND auto-connects their workspace.
+
+  app.get(
+    '/google',
     {
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       schema: {
         tags: ['auth'],
-        summary: 'Create an account',
-        body: registerBodySchema,
-        response: { 201: authResponseSchema },
+        summary: 'Sign in with Google (redirects to the consent screen)',
       },
     },
-    async (request, reply) => {
-      const result = await service.register(request.body, requestMeta(request));
-      setRefreshCookie(reply, result.refreshToken);
-      return reply.status(201).send(ok(result, 'Account created'));
+    async (_request, reply) => {
+      return reply.redirect(googleSignIn.buildSignInUrl());
     },
   );
 
-  app.post(
-    '/login',
+  // Google redirects here — authenticated by the signed state, not a JWT.
+  app.get(
+    '/google/callback',
     {
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
       schema: {
         tags: ['auth'],
-        summary: 'Log in with email and password',
-        body: loginBodySchema,
-        response: { 200: authResponseSchema },
+        summary: 'Google OAuth redirect endpoint (browser lands here from Google)',
+        querystring: oauthCallbackQuerySchema,
       },
     },
     async (request, reply) => {
-      const result = await service.login(request.body, requestMeta(request));
-      setRefreshCookie(reply, result.refreshToken);
-      return reply.send(ok(result, 'Logged in'));
+      const { code, state, error } = request.query;
+      const webUrl = config.connectors.webAppUrl;
+      if (error || !code || !state) {
+        return reply.redirect(
+          `${webUrl}/login?error=${encodeURIComponent(error ?? 'missing_code')}`,
+        );
+      }
+      try {
+        const result = await googleSignIn.handleCallback(code, state, requestMeta(request));
+        setRefreshCookie(reply, result.refreshToken);
+        // The web app exchanges the refresh cookie for an access token on
+        // this landing page — no token material ever rides in the URL.
+        // `(auth)` is a route group, so the page resolves at /callback.
+        return reply.redirect(`${webUrl}/callback`);
+      } catch (callbackError) {
+        request.log.error({ err: callbackError }, 'google sign-in callback failed');
+        const message = callbackError instanceof Error ? callbackError.message : 'signin_failed';
+        return reply.redirect(`${webUrl}/login?error=${encodeURIComponent(message)}`);
+      }
     },
   );
 
