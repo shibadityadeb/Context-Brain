@@ -19,7 +19,7 @@ export default async function healthRoutes(app: FastifyInstance): Promise<void> 
     '/health',
     { schema: { tags: ['health'], summary: 'Aggregate health of the API and its dependencies' } },
     async (_request, reply) => {
-      const [database, redis, storage, vector, queue] = await Promise.all([
+      const [database, redis, storage, vector, queue, temporal] = await Promise.all([
         check(() => app.prisma.$queryRaw`SELECT 1`),
         check(() => app.redis.ping()),
         check(async () => {
@@ -31,6 +31,9 @@ export default async function healthRoutes(app: FastifyInstance): Promise<void> 
         check(async () => {
           if (!(await app.queues.health())) throw new Error('queue down');
         }),
+        check(async () => {
+          if (!(await app.temporal.health())) throw new Error('temporal down');
+        }),
       ]);
 
       const services: HealthReport['services'] = {
@@ -40,6 +43,7 @@ export default async function healthRoutes(app: FastifyInstance): Promise<void> 
         storage,
         vector,
         queue,
+        temporal,
       };
       const healthy = Object.values(services).every((status) => status === 'up');
       const report: HealthReport = {

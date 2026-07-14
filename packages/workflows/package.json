@@ -1,0 +1,27 @@
+{
+  "name": "@company-brain/workflows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "test": "echo 'no tests' && exit 0"
+  },
+  "dependencies": {
+    "@company-brain/activities": "workspace:*",
+    "@temporalio/common": "^1.20.2",
+    "@temporalio/workflow": "^1.20.2"
+  },
+  "devDependencies": {
+    "@company-brain/config": "workspace:*",
+    "eslint": "^9.24.0",
+    "typescript": "^5.8.3"
+  }
+}

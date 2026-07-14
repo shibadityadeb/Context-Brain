@@ -1,0 +1,8 @@
+{
+  "extends": "@company-brain/config/tsconfig/node",
+  "compilerOptions": {
+    // Workflow code runs in Temporal's deterministic sandbox — no Node APIs.
+    "types": []
+  },
+  "include": ["src"]
+}

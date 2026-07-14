@@ -41,5 +41,6 @@ export interface HealthReport {
     storage: ServiceStatus;
     vector: ServiceStatus;
     queue: ServiceStatus;
+    temporal: ServiceStatus;
   };
 }
