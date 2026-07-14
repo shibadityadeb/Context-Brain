@@ -22,7 +22,8 @@ enum RoleName {
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   email        String    @unique
-  passwordHash String
+  // Null for Google OAuth accounts — the platform has no password login.
+  passwordHash String?
   name         String
   role         RoleName  @default(EMPLOYEE)
   isActive     Boolean   @default(true)

@@ -68,7 +68,7 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URI: z
     .string()
     .url()
-    .default('http://localhost:4000/api/v1/connectors/google/callback'),
+    .default('http://localhost:4000/api/v1/auth/google/callback'),
   TOKEN_ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'TOKEN_ENCRYPTION_KEY must be 64 hex chars')

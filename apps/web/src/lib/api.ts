@@ -60,40 +60,43 @@ async function request<T>(path: string, init: RequestInit = {}, retryOn401 = tru
 
 type AuthPayload = { user: UserProfile } & AuthTokens;
 
-async function tryRefresh(): Promise<boolean> {
-  try {
-    const data = await request<AuthPayload>(
-      '/api/v1/auth/refresh',
-      { method: 'POST', body: JSON.stringify({}) },
-      false,
-    );
-    setAccessToken(data.accessToken);
-    return true;
-  } catch {
-    clearAccessToken();
-    return false;
-  }
+// Single-flight: parallel 401s must share one refresh. Concurrent refresh
+// calls would rotate the token twice — the API treats reuse of the revoked
+// token as theft and revokes every session, logging the user out.
+let refreshInFlight: Promise<boolean> | null = null;
+
+function tryRefresh(): Promise<boolean> {
+  refreshInFlight ??= (async () => {
+    try {
+      const data = await request<AuthPayload>(
+        '/api/v1/auth/refresh',
+        { method: 'POST', body: JSON.stringify({}) },
+        false,
+      );
+      setAccessToken(data.accessToken);
+      return true;
+    } catch {
+      clearAccessToken();
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
+/** Where "Sign in with Google" sends the browser (API handles the OAuth dance). */
+export const GOOGLE_SIGN_IN_URL = `${API_URL}/api/v1/auth/google`;
+
+/**
+ * Called on the post-OAuth landing page: the httpOnly refresh cookie set
+ * by the callback is exchanged for an access token.
+ */
+export function completeSignIn(): Promise<boolean> {
+  return tryRefresh();
 }
 
 export const api = {
-  async register(input: { email: string; password: string; name: string }): Promise<AuthPayload> {
-    const data = await request<AuthPayload>('/api/v1/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-    setAccessToken(data.accessToken);
-    return data;
-  },
-
-  async login(input: { email: string; password: string }): Promise<AuthPayload> {
-    const data = await request<AuthPayload>('/api/v1/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-    setAccessToken(data.accessToken);
-    return data;
-  },
-
   async logout(): Promise<void> {
     try {
       await request<null>('/api/v1/auth/logout', { method: 'POST', body: JSON.stringify({}) });
@@ -191,13 +194,6 @@ export const api = {
   },
 
   // ── Connectors ──────────────────────────────────────────────────
-
-  connectGoogle(): Promise<{ authUrl: string }> {
-    return request('/api/v1/connectors/google/connect', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-  },
 
   disconnectGoogle(connectorId: string): Promise<{ disconnected: boolean }> {
     return request('/api/v1/connectors/google/disconnect', {

@@ -3,8 +3,8 @@ import {
   connectorIdParamsSchema,
   listLogsQuerySchema,
   listResourcesQuerySchema,
-  oauthCallbackQuerySchema,
 } from '../src/modules/connectors/connector.schemas.js';
+import { oauthCallbackQuerySchema } from '../src/modules/auth/auth.schemas.js';
 
 describe('connector API schemas', () => {
   it('validates connector id params', () => {

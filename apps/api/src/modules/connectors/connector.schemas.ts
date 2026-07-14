@@ -4,12 +4,6 @@ export const connectorIdParamsSchema = z.object({
   connectorId: z.string().uuid(),
 });
 
-export const oauthCallbackQuerySchema = z.object({
-  code: z.string().optional(),
-  state: z.string().optional(),
-  error: z.string().optional(),
-});
-
 export const disconnectBodySchema = z.object({
   connectorId: z.string().uuid(),
 });

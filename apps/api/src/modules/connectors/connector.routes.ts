@@ -2,20 +2,18 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { ok } from '../../utils/response.js';
-import { config } from '../../config/index.js';
 import { ConnectorApiService } from './connector.service.js';
 import {
   connectorIdParamsSchema,
   disconnectBodySchema,
   listLogsQuerySchema,
   listResourcesQuerySchema,
-  oauthCallbackQuerySchema,
 } from './connector.schemas.js';
 
 /**
- * Knowledge Connector Platform API. Google Workspace is the first
- * provider; the endpoints are provider-scoped only where OAuth demands it
- * (connect/callback) — everything else is generic.
+ * Knowledge Connector Platform API. Connections are established
+ * automatically when a user signs in with Google (see the auth module);
+ * these endpoints only observe and manage existing connectors.
  */
 export default async function connectorRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -24,52 +22,6 @@ export default async function connectorRoutes(fastify: FastifyInstance): Promise
     temporal: app.temporal,
     redis: app.redis,
   });
-
-  // ── OAuth flow ────────────────────────────────────────────────
-
-  app.post(
-    '/google/connect',
-    {
-      preHandler: [authenticate],
-      schema: {
-        tags: ['connectors'],
-        summary: 'Begin the Google Workspace OAuth flow (returns the consent URL)',
-        security: [{ bearerAuth: [] }],
-      },
-    },
-    async (request, reply) => {
-      const organizationId = await service.resolveOrganization(request.user!.id);
-      return reply.send(ok(service.buildGoogleConnectUrl(request.user!.id, organizationId)));
-    },
-  );
-
-  // Google redirects here — authenticated by the signed state, not a JWT.
-  app.get(
-    '/google/callback',
-    {
-      schema: {
-        tags: ['connectors'],
-        summary: 'OAuth redirect endpoint (browser lands here from Google)',
-        querystring: oauthCallbackQuerySchema,
-      },
-    },
-    async (request, reply) => {
-      const { code, state, error } = request.query;
-      const webUrl = `${config.connectors.webAppUrl}/connectors`;
-      if (error || !code || !state) {
-        return reply.redirect(`${webUrl}?error=${encodeURIComponent(error ?? 'missing_code')}`);
-      }
-      try {
-        const { connectorId } = await service.handleGoogleCallback(code, state);
-        return reply.redirect(`${webUrl}?connected=${connectorId}`);
-      } catch (callbackError) {
-        request.log.error({ err: callbackError }, 'google oauth callback failed');
-        const message =
-          callbackError instanceof Error ? callbackError.message : 'connection_failed';
-        return reply.redirect(`${webUrl}?error=${encodeURIComponent(message)}`);
-      }
-    },
-  );
 
   app.post(
     '/google/disconnect',
