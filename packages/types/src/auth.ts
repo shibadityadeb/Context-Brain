@@ -14,6 +14,11 @@ export const PERMISSIONS = [
   'user:read',
   'apikey:manage',
   'audit:read',
+  'knowledge:read',
+  'knowledge:write',
+  'knowledge:manage',
+  'connector:read',
+  'connector:manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -27,10 +32,33 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     'user:read',
     'apikey:manage',
     'audit:read',
+    'knowledge:read',
+    'knowledge:write',
+    'knowledge:manage',
+    'connector:read',
+    'connector:manage',
   ],
-  MANAGER: ['org:read', 'project:manage', 'project:read', 'user:read', 'audit:read'],
-  EMPLOYEE: ['org:read', 'project:read', 'user:read'],
-  SERVICE: ['org:read', 'project:read'],
+  MANAGER: [
+    'org:read',
+    'project:manage',
+    'project:read',
+    'user:read',
+    'audit:read',
+    'knowledge:read',
+    'knowledge:write',
+    'knowledge:manage',
+    'connector:read',
+    'connector:manage',
+  ],
+  EMPLOYEE: [
+    'org:read',
+    'project:read',
+    'user:read',
+    'knowledge:read',
+    'knowledge:write',
+    'connector:read',
+  ],
+  SERVICE: ['org:read', 'project:read', 'knowledge:read', 'connector:read'],
 };
 
 export interface AccessTokenPayload {

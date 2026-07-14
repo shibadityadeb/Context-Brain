@@ -14,3 +14,24 @@ export const getStatusQuery = defineQuery<string>('getStatus');
 
 /** healthCheckWorkflow — latest report (null until the first check lands). */
 export const getReportQuery = defineQuery<ServiceHealthReport | null>('getReport');
+
+/** documentIngestionWorkflow — live pipeline progress. */
+export interface IngestionProgress {
+  documentId: string;
+  stage: 'VALIDATE' | 'PARSE' | 'CHUNK' | 'EMBED' | 'COMPLETE';
+  chunkCount: number;
+  embeddingCount: number;
+  error: string | null;
+}
+export const getIngestionProgressQuery = defineQuery<IngestionProgress>('getIngestionProgress');
+
+/** connector sync workflows — live page/resource counters. */
+export interface ConnectorSyncProgress {
+  connectorId: string;
+  service: string;
+  pages: number;
+  resources: number;
+  done: boolean;
+  error: string | null;
+}
+export const getSyncProgressQuery = defineQuery<ConnectorSyncProgress>('getSyncProgress');

@@ -15,6 +15,9 @@
     "test": "echo 'no tests' && exit 0"
   },
   "dependencies": {
+    "@company-brain/knowledge": "workspace:*",
+    "@prisma/client": "^6.19.3",
+    "@qdrant/js-client-rest": "^1.18.0",
     "@temporalio/activity": "^1.20.2",
     "ioredis": "^5.6.1",
     "minio": "^8.0.5"

@@ -28,12 +28,18 @@ apps/
   web/            Next.js dashboard (login, register, dashboard, profile, settings)
 packages/
   activities/     Temporal activity implementations (all side effects)
+  auth/           OAuth2 helpers + AES-256-GCM token encryption
   config/         Shared ESLint + tsconfig presets
+  connectors/
+    core/         Connector SDK (provider-agnostic framework)
+    google/       Google Workspace connector (Drive/Docs/Sheets/Slides/Gmail/Calendar)
+  events/         Redis-backed platform event bus
   types/          Shared TypeScript contracts (API envelope, auth, roles)
   ui/             Shared shadcn-style React primitives
   utils/          Small dependency-free helpers
   workflows/      Temporal workflow definitions (deterministic orchestration)
 services/
+  connector-worker/ Temporal worker for connector sync (queue brain-connectors, health :4101)
   temporal-worker/ Temporal worker (workflow + activity host, health :4100)
   worker/         BullMQ worker (generic "system" queue)
 infrastructure/
@@ -126,5 +132,6 @@ Every endpoint returns the standard envelope:
 ```
 
 See [docs/architecture.md](docs/architecture.md) for design decisions and
-[docs/temporal.md](docs/temporal.md) for the workflow orchestration guide
-(why Temporal, how workflows/activities work, how to add new workflows).
+[docs/temporal.md](docs/temporal.md) for the workflow orchestration guide and
+[docs/connectors.md](docs/connectors.md) for the Knowledge Connector Platform
+(Connector SDK, OAuth flow, sync architecture, extension guide).

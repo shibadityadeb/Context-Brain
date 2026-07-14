@@ -2,13 +2,29 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Brain, LayoutDashboard, LogOut, Settings, User } from 'lucide-react';
+import {
+  Brain,
+  Cable,
+  FileText,
+  LayoutDashboard,
+  Library,
+  LogOut,
+  Search,
+  Settings,
+  Upload,
+  User,
+} from 'lucide-react';
 import { Button, cn } from '@company-brain/ui';
 import { AuthProvider, useAuth } from '@/components/auth-provider';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/knowledge', label: 'Knowledge', icon: FileText },
+  { href: '/knowledge/upload', label: 'Upload', icon: Upload },
+  { href: '/knowledge/library', label: 'Library', icon: Library },
+  { href: '/knowledge/search', label: 'Search', icon: Search },
+  { href: '/connectors', label: 'Connectors', icon: Cable },
   { href: '/profile', label: 'Profile', icon: User },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];

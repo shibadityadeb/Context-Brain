@@ -49,6 +49,33 @@ export const config = {
     taskQueue: env.TEMPORAL_TASK_QUEUE,
     workerHealthUrl: env.TEMPORAL_WORKER_HEALTH_URL,
   },
+  embeddings: {
+    provider: env.EMBEDDINGS_PROVIDER,
+    model: env.EMBEDDINGS_MODEL,
+    dimension: env.EMBEDDINGS_DIMENSION,
+    apiKey: {
+      local: undefined,
+      openai: env.OPENAI_API_KEY,
+      gemini: env.GEMINI_API_KEY,
+      voyage: env.VOYAGE_API_KEY,
+    }[env.EMBEDDINGS_PROVIDER],
+  },
+  uploads: {
+    maxFileSizeBytes: env.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024,
+  },
+  connectors: {
+    taskQueue: env.CONNECTOR_TASK_QUEUE,
+    workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,
+    webAppUrl: env.WEB_APP_URL,
+    // Refresh-token encryption; required as soon as a connector is used.
+    tokenEncryptionKey: env.TOKEN_ENCRYPTION_KEY,
+    stateSecret: env.COOKIE_SECRET,
+    google: {
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      redirectUri: env.GOOGLE_REDIRECT_URI,
+    },
+  },
 } as const;
 
 export type AppConfig = typeof config;

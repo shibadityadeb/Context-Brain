@@ -1,7 +1,12 @@
 import { createRequire } from 'node:module';
 import { Worker } from '@temporalio/worker';
 import { pino } from 'pino';
-import { createActivities, createActivityContext } from '@company-brain/activities';
+import {
+  createActivities,
+  createActivityContext,
+  createKnowledgeActivities,
+  createKnowledgeActivityContext,
+} from '@company-brain/activities';
 import { config } from './config.js';
 import { connectWithRetry } from './connection.js';
 import { startHealthServer } from './health-server.js';
@@ -25,7 +30,8 @@ async function main(): Promise<void> {
   let connectionStatus: 'connected' | 'disconnected' = 'connected';
 
   // Long-lived clients shared by every activity invocation.
-  const activityContext = createActivityContext(config.activities);
+  const baseContext = createActivityContext(config.activities);
+  const activityContext = createKnowledgeActivityContext(baseContext, config.knowledge);
 
   const worker = await Worker.create({
     connection,
@@ -35,7 +41,10 @@ async function main(): Promise<void> {
     // @company-brain/workflows is bundled and registered by export name.
     workflowsPath: require.resolve('@company-brain/workflows'),
     // The activity registry: plain functions closed over shared clients.
-    activities: createActivities(activityContext),
+    activities: {
+      ...createActivities(activityContext),
+      ...createKnowledgeActivities(activityContext),
+    },
     // In-flight activities get this long to finish on shutdown before
     // being cancelled (their tasks are then retried by another worker).
     shutdownGraceTime: config.temporal.shutdownGraceTimeMs,

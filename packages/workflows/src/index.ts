@@ -7,7 +7,45 @@
 export { helloWorkflow, type HelloWorkflowResult } from './workflows/hello.workflow.js';
 export { healthCheckWorkflow } from './workflows/health-check.workflow.js';
 export { storageWorkflow } from './workflows/storage.workflow.js';
+export {
+  documentIngestionWorkflow,
+  type DocumentIngestionInput,
+  type DocumentIngestionResult,
+} from './workflows/document-ingestion.workflow.js';
 
-export { skipDelaySignal, getStatusQuery, getReportQuery } from './definitions.js';
+export {
+  workspaceInitialSyncWorkflow,
+  incrementalSyncWorkflow,
+  driveSyncWorkflow,
+  docsSyncWorkflow,
+  sheetsSyncWorkflow,
+  slidesSyncWorkflow,
+  emailSyncWorkflow,
+  calendarSyncWorkflow,
+  permissionSyncWorkflow,
+  type ServiceSyncInput,
+  type ServiceSyncResult,
+  type WorkspaceInitialSyncResult,
+} from './workflows/connector-sync.workflow.js';
+export type {
+  ConnectorActivitiesContract,
+  StartSyncJobInput,
+  SyncPageInput,
+  SyncPageOutput,
+  CompleteSyncJobInput,
+  IncrementalSyncInput,
+  IncrementalSyncOutput,
+  DiscoverWorkspaceOutput,
+} from './connector-contract.js';
+
+export {
+  skipDelaySignal,
+  getStatusQuery,
+  getReportQuery,
+  getIngestionProgressQuery,
+  getSyncProgressQuery,
+  type IngestionProgress,
+  type ConnectorSyncProgress,
+} from './definitions.js';
 export { TASK_QUEUES, WORKFLOW_TYPES, type TaskQueue, type WorkflowType } from './constants.js';
 export { DEFAULT_RETRY_POLICY, QUICK_RETRY_POLICY } from './retry-policies.js';
