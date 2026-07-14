@@ -43,6 +43,12 @@ export const config = {
   queue: {
     prefix: env.QUEUE_PREFIX,
   },
+  temporal: {
+    address: env.TEMPORAL_ADDRESS,
+    namespace: env.TEMPORAL_NAMESPACE,
+    taskQueue: env.TEMPORAL_TASK_QUEUE,
+    workerHealthUrl: env.TEMPORAL_WORKER_HEALTH_URL,
+  },
 } as const;
 
 export type AppConfig = typeof config;

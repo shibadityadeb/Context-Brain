@@ -9,6 +9,8 @@ overrides:
   ioredis: ^5.11.1
 
 onlyBuiltDependencies:
+  - '@swc/core'
+  - protobufjs
   - '@prisma/client'
   - '@prisma/engines'
   - esbuild

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { StorageService } from '../services/storage.service.js';
 import { VectorService } from '../services/vector.service.js';
 import { QueueService } from '../services/queue.service.js';
+import { TemporalService } from '../services/temporal.service.js';
 import { createRedisConnection } from './redis.js';
 
 declare module 'fastify' {
@@ -10,6 +11,7 @@ declare module 'fastify' {
     storage: StorageService;
     vector: VectorService;
     queues: QueueService;
+    temporal: TemporalService;
   }
 }
 
@@ -24,6 +26,8 @@ export default fp(
     // BullMQ requires maxRetriesPerRequest: null on its connections.
     const queueConnection = createRedisConnection({ maxRetriesPerRequest: null });
     const queues = new QueueService(queueConnection);
+    // Lazy client: no connection is opened until the first workflow call.
+    const temporal = new TemporalService();
 
     // Non-fatal in dev: infra containers may still be starting.
     try {
@@ -35,10 +39,12 @@ export default fp(
     app.decorate('storage', storage);
     app.decorate('vector', vector);
     app.decorate('queues', queues);
+    app.decorate('temporal', temporal);
 
     app.addHook('onClose', async () => {
       await queues.close();
       await queueConnection.quit();
+      await temporal.close();
     });
   },
   { name: 'services', dependencies: ['redis'] },

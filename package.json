@@ -8,10 +8,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker dev",
+    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker --filter @company-brain/temporal-worker dev",
     "dev:api": "pnpm --filter @company-brain/api dev",
     "dev:web": "pnpm --filter @company-brain/web dev",
     "dev:worker": "pnpm --filter @company-brain/worker dev",
+    "dev:temporal-worker": "pnpm --filter @company-brain/temporal-worker dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",

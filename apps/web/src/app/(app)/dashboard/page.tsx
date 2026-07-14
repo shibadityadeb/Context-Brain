@@ -13,6 +13,7 @@ const SERVICE_LABELS: Record<keyof HealthReport['services'], string> = {
   storage: 'MinIO',
   vector: 'Qdrant',
   queue: 'Queue',
+  temporal: 'Temporal',
 };
 
 export default function DashboardPage() {

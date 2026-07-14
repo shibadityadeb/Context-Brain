@@ -46,6 +46,11 @@ const envSchema = z.object({
   QDRANT_API_KEY: z.string().optional().default(''),
 
   QUEUE_PREFIX: z.string().default('brain'),
+
+  TEMPORAL_ADDRESS: z.string().default('localhost:7233'),
+  TEMPORAL_NAMESPACE: z.string().default('company-brain'),
+  TEMPORAL_TASK_QUEUE: z.string().default('brain-core'),
+  TEMPORAL_WORKER_HEALTH_URL: z.string().url().default('http://localhost:4100/health'),
 });
 
 const parsed = envSchema.safeParse(process.env);
