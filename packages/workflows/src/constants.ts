@@ -5,6 +5,7 @@
  */
 export const TASK_QUEUES = {
   core: 'brain-core',
+  connectors: 'brain-connectors',
 } as const;
 export type TaskQueue = (typeof TASK_QUEUES)[keyof typeof TASK_QUEUES];
 
@@ -13,5 +14,15 @@ export const WORKFLOW_TYPES = {
   hello: 'helloWorkflow',
   healthCheck: 'healthCheckWorkflow',
   storage: 'storageWorkflow',
+  documentIngestion: 'documentIngestionWorkflow',
+  workspaceInitialSync: 'workspaceInitialSyncWorkflow',
+  incrementalSync: 'incrementalSyncWorkflow',
+  driveSync: 'driveSyncWorkflow',
+  docsSync: 'docsSyncWorkflow',
+  sheetsSync: 'sheetsSyncWorkflow',
+  slidesSync: 'slidesSyncWorkflow',
+  emailSync: 'emailSyncWorkflow',
+  calendarSync: 'calendarSyncWorkflow',
+  permissionSync: 'permissionSyncWorkflow',
 } as const;
 export type WorkflowType = (typeof WORKFLOW_TYPES)[keyof typeof WORKFLOW_TYPES];

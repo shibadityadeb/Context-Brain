@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
-import type { ActivityConfig } from '@company-brain/activities';
+import type { ActivityConfig, KnowledgeConfig } from '@company-brain/activities';
 
 loadDotenv({ path: resolve(process.cwd(), '.env') });
 loadDotenv({ path: resolve(process.cwd(), '../../.env') });
@@ -32,6 +32,16 @@ const envSchema = z.object({
   STORAGE_DEFAULT_BUCKET: z.string().default('company-brain'),
 
   QDRANT_URL: z.string().url().default('http://localhost:6333'),
+
+  EMBEDDINGS_PROVIDER: z.enum(['local', 'openai', 'gemini', 'voyage']).default('local'),
+  EMBEDDINGS_MODEL: z.string().optional(),
+  EMBEDDINGS_DIMENSION: z.coerce.number().int().positive().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  VOYAGE_API_KEY: z.string().optional(),
+
+  CHUNK_SIZE: z.coerce.number().int().positive().default(400),
+  CHUNK_OVERLAP: z.coerce.number().int().nonnegative().default(60),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -67,6 +77,26 @@ const activityConfig: ActivityConfig = {
   },
 };
 
+const providerKeys = {
+  local: undefined,
+  openai: env.OPENAI_API_KEY,
+  gemini: env.GEMINI_API_KEY,
+  voyage: env.VOYAGE_API_KEY,
+} as const;
+
+const knowledgeConfig: KnowledgeConfig = {
+  embedding: {
+    provider: env.EMBEDDINGS_PROVIDER,
+    model: env.EMBEDDINGS_MODEL,
+    dimension: env.EMBEDDINGS_DIMENSION,
+    apiKey: providerKeys[env.EMBEDDINGS_PROVIDER],
+  },
+  chunking: {
+    chunkSize: env.CHUNK_SIZE,
+    chunkOverlap: env.CHUNK_OVERLAP,
+  },
+};
+
 export const config = {
   env: env.NODE_ENV,
   isProduction: env.NODE_ENV === 'production',
@@ -86,6 +116,7 @@ export const config = {
     shutdownGraceTimeMs: 10_000,
   },
   activities: activityConfig,
+  knowledge: knowledgeConfig,
 } as const;
 
 export type WorkerConfig = typeof config;

@@ -51,6 +51,31 @@ const envSchema = z.object({
   TEMPORAL_NAMESPACE: z.string().default('company-brain'),
   TEMPORAL_TASK_QUEUE: z.string().default('brain-core'),
   TEMPORAL_WORKER_HEALTH_URL: z.string().url().default('http://localhost:4100/health'),
+
+  // Must match the worker's provider so query vectors live in the same
+  // space as the indexed chunk vectors.
+  EMBEDDINGS_PROVIDER: z.enum(['local', 'openai', 'gemini', 'voyage']).default('local'),
+  EMBEDDINGS_MODEL: z.string().optional(),
+  EMBEDDINGS_DIMENSION: z.coerce.number().int().positive().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  VOYAGE_API_KEY: z.string().optional(),
+
+  UPLOAD_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(50),
+
+  GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  GOOGLE_REDIRECT_URI: z
+    .string()
+    .url()
+    .default('http://localhost:4000/api/v1/connectors/google/callback'),
+  TOKEN_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, 'TOKEN_ENCRYPTION_KEY must be 64 hex chars')
+    .optional(),
+  CONNECTOR_TASK_QUEUE: z.string().default('brain-connectors'),
+  CONNECTOR_WORKER_HEALTH_URL: z.string().url().default('http://localhost:4101/health'),
+  WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 });
 
 const parsed = envSchema.safeParse(process.env);

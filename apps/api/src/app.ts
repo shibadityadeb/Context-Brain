@@ -13,6 +13,8 @@ import authRoutes from './modules/auth/auth.routes.js';
 import healthRoutes from './modules/health/health.routes.js';
 import userRoutes from './modules/users/user.routes.js';
 import workflowRoutes from './modules/workflows/workflow.routes.js';
+import knowledgeRoutes from './modules/knowledge/knowledge.routes.js';
+import connectorRoutes from './modules/connectors/connector.routes.js';
 
 /**
  * Builds a fully configured Fastify instance. Kept separate from the
@@ -54,6 +56,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(userRoutes, { prefix: '/api/v1/users' });
   await app.register(workflowRoutes, { prefix: '/api/v1/workflows' });
+  await app.register(knowledgeRoutes, { prefix: '/api/v1/knowledge' });
+  await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
 
   return app;
 }

@@ -2,13 +2,13 @@
   "name": "company-brain",
   "version": "0.1.0",
   "private": true,
-  "description": "AI-powered Company Brain — Phase 0 platform foundation",
+  "description": "AI-powered Company Brain \u2014 Phase 0 platform foundation",
   "packageManager": "pnpm@10.33.2",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker --filter @company-brain/temporal-worker dev",
+    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker --filter @company-brain/temporal-worker --filter @company-brain/connector-worker dev",
     "dev:api": "pnpm --filter @company-brain/api dev",
     "dev:web": "pnpm --filter @company-brain/web dev",
     "dev:worker": "pnpm --filter @company-brain/worker dev",
@@ -26,7 +26,8 @@
     "db:migrate": "pnpm --filter @company-brain/api db:migrate",
     "db:seed": "pnpm --filter @company-brain/api db:seed",
     "db:studio": "pnpm --filter @company-brain/api db:studio",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev:connector-worker": "pnpm --filter @company-brain/connector-worker dev"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",

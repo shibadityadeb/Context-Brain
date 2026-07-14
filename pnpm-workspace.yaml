@@ -1,6 +1,7 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  - 'packages/connectors/*'
   - 'services/*'
 
 # Single ioredis instance across the workspace so BullMQ and our own code

@@ -55,15 +55,27 @@ export class TemporalService {
   /** Start a workflow without waiting for its result. */
   async start(
     workflowType: string,
-    options: { workflowId: string; args?: unknown[]; taskQueue?: string },
+    options: {
+      workflowId: string;
+      args?: unknown[];
+      taskQueue?: string;
+      cronSchedule?: string;
+    },
   ): Promise<{ workflowId: string; runId: string }> {
     const client = await this.getClient();
     const handle = await client.workflow.start(workflowType, {
       taskQueue: options.taskQueue ?? config.temporal.taskQueue,
       workflowId: options.workflowId,
       args: (options.args ?? []) as never[],
+      ...(options.cronSchedule ? { cronSchedule: options.cronSchedule } : {}),
     });
     return { workflowId: handle.workflowId, runId: handle.firstExecutionRunId };
+  }
+
+  /** Terminate a workflow (e.g. a connector's cron sync) if it exists. */
+  async terminate(workflowId: string, reason: string): Promise<void> {
+    const handle = await this.getHandle(workflowId);
+    await handle.terminate(reason);
   }
 
   /** Start a workflow and await its result (only for short-lived workflows). */

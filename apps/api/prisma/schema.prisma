@@ -33,6 +33,11 @@ model User {
   auditLogs   AuditLog[]
   apiKeys     APIKey[]
 
+  folders          Folder[]
+  tags             Tag[]
+  knowledgeSources KnowledgeSource[]
+  documents        Document[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -51,6 +56,14 @@ model Organization {
   apiKeys     APIKey[]
   auditLogs   AuditLog[]
 
+  folders          Folder[]
+  tags             Tag[]
+  knowledgeSources KnowledgeSource[]
+  documents        Document[]
+
+  connectors           Connector[]
+  connectorLinks       OrganizationConnector[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -65,6 +78,10 @@ model Project {
 
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  folders          Folder[]
+  knowledgeSources KnowledgeSource[]
+  documents        Document[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -179,4 +196,711 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ────────────────────────────────────────────────────────────────
+// Phase 1 — Knowledge Brain
+// Documents, versions, chunks, embeddings, folders, tags, sources
+// and processing jobs. Every model carries organization scoping,
+// optional project scoping, ownership and soft-delete + audit
+// timestamps, matching the Phase 0 conventions.
+// ────────────────────────────────────────────────────────────────
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum ProcessingStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ProcessingStage {
+  VALIDATE
+  PARSE
+  CLEAN
+  CHUNK
+  METADATA
+  EMBED
+  INDEX
+  PERSIST
+  COMPLETE
+}
+
+enum KnowledgeSourceType {
+  UPLOAD
+  API
+  INTEGRATION
+}
+
+model Folder {
+  id   String @id @default(uuid()) @db.Uuid
+  name String
+
+  parentId String? @db.Uuid
+  parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Folder[] @relation("FolderTree")
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId      String?      @db.Uuid
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  ownerId        String?      @db.Uuid
+  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  documents Document[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@index([parentId])
+  @@map("folders")
+}
+
+model Tag {
+  id   String @id @default(uuid()) @db.Uuid
+  name String
+  slug String
+  color String?
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerId        String?      @db.Uuid
+  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  documents DocumentTag[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, slug])
+  @@map("tags")
+}
+
+model KnowledgeSource {
+  id   String              @id @default(uuid()) @db.Uuid
+  name String
+  type KnowledgeSourceType @default(UPLOAD)
+  // Source-specific configuration (e.g. integration credentials pointer).
+  config Json?
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId      String?      @db.Uuid
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  ownerId        String?      @db.Uuid
+  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  documents Document[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@map("knowledge_sources")
+}
+
+model Document {
+  id          String  @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+
+  fileName      String
+  mimeType      String
+  fileSizeBytes Int
+  storageBucket String
+  storageKey    String
+  checksum      String?
+  status        DocumentStatus @default(UPLOADED)
+  language      String?
+  // Extracted metadata: author, keywords, headings, sections, tables,
+  // creationDate — schema-free so parsers can evolve.
+  metadata Json?
+
+  currentVersion Int @default(1)
+
+  folderId String? @db.Uuid
+  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  sourceId String?          @db.Uuid
+  source   KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId      String?      @db.Uuid
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  ownerId        String?      @db.Uuid
+  owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  versions       DocumentVersion[]
+  chunks         Chunk[]
+  embeddings     EmbeddingReference[]
+  tags           DocumentTag[]
+  processingJobs ProcessingJob[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([projectId])
+  @@index([folderId])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id      String @id @default(uuid()) @db.Uuid
+  version Int
+
+  documentId String   @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  storageKey    String
+  fileSizeBytes Int
+  checksum      String?
+  // Parser output snapshot for this version (headings, sections, stats).
+  metadata Json?
+
+  organizationId String @db.Uuid
+
+  chunks Chunk[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([documentId, version])
+  @@index([organizationId])
+  @@map("document_versions")
+}
+
+model DocumentTag {
+  documentId String   @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tagId      String   @db.Uuid
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([documentId, tagId])
+  @@map("document_tags")
+}
+
+model Chunk {
+  id    String @id @default(uuid()) @db.Uuid
+  index Int
+
+  content    String @db.Text
+  tokenCount Int
+  heading    String?
+  section    String?
+  startOffset Int @default(0)
+  endOffset   Int @default(0)
+  metadata    Json?
+
+  documentId String   @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionId  String          @db.Uuid
+  version    DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  organizationId String @db.Uuid
+
+  embedding EmbeddingReference?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([versionId, index])
+  @@index([documentId])
+  @@index([organizationId])
+  @@map("chunks")
+}
+
+model EmbeddingReference {
+  id String @id @default(uuid()) @db.Uuid
+
+  chunkId String @unique @db.Uuid
+  chunk   Chunk  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  documentId String   @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  // Qdrant location + provenance of the vector.
+  collection String
+  pointId    String @db.Uuid
+  provider   String
+  model      String
+  dimension  Int
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([documentId])
+  @@index([organizationId])
+  @@map("embedding_references")
+}
+
+model ProcessingJob {
+  id String @id @default(uuid()) @db.Uuid
+
+  documentId String   @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentVersion Int @default(1)
+
+  // Temporal linkage for observability.
+  workflowId String
+  runId      String?
+
+  stage   ProcessingStage  @default(VALIDATE)
+  status  ProcessingStatus @default(PENDING)
+  attempt Int              @default(1)
+  error   String?
+  // Append-only stage log: [{stage, message, at}]
+  logs Json[]
+
+  chunkCount     Int?
+  embeddingCount Int?
+
+  organizationId String @db.Uuid
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([documentId])
+  @@index([organizationId, status])
+  @@index([workflowId])
+  @@map("processing_jobs")
+}
+
+// ────────────────────────────────────────────────────────────────
+// Phase 1 — Knowledge Connector Platform
+// Generic connector framework tables: one Connector row per linked
+// external system (Google Workspace first; Slack/GitHub/Notion/… later),
+// with credentials, sync jobs, cursors, discovered resources, changes,
+// permissions, versions and an audit log. Organization scoping,
+// soft delete and audit timestamps everywhere. Child tables carry
+// organizationId as a plain scalar for isolation queries.
+// ────────────────────────────────────────────────────────────────
+
+enum ConnectorProvider {
+  GOOGLE_WORKSPACE
+  SLACK
+  GITHUB
+  NOTION
+  CONFLUENCE
+  MICROSOFT_365
+  DROPBOX
+  JIRA
+  LINEAR
+  SALESFORCE
+}
+
+enum ConnectorStatus {
+  PENDING
+  CONNECTED
+  SYNCING
+  ERROR
+  DISCONNECTED
+  REVOKED
+}
+
+enum CredentialStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum SyncJobType {
+  INITIAL
+  INCREMENTAL
+  DISCOVERY
+  PERMISSION
+  MANUAL
+}
+
+enum SyncJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum ExternalResourceType {
+  GOOGLE_DOC
+  GOOGLE_SHEET
+  GOOGLE_SLIDES
+  PDF
+  FOLDER
+  DRIVE_FILE
+  SHARED_DRIVE
+  EMAIL
+  EMAIL_THREAD
+  CALENDAR
+  CALENDAR_EVENT
+  ATTACHMENT
+  OTHER
+}
+
+enum ExternalResourceStatus {
+  ACTIVE
+  TRASHED
+  DELETED
+}
+
+enum ChangeType {
+  CREATED
+  UPDATED
+  DELETED
+  PERMISSION_CHANGED
+}
+
+enum PermissionRole {
+  OWNER
+  EDITOR
+  COMMENTER
+  VIEWER
+}
+
+enum PrincipalType {
+  USER
+  GROUP
+  DOMAIN
+  ANYONE
+}
+
+enum ConnectorLogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+model Connector {
+  id       String            @id @default(uuid()) @db.Uuid
+  provider ConnectorProvider
+  name     String
+  status   ConnectorStatus   @default(PENDING)
+  // Provider-specific, non-secret configuration (sync intervals, filters).
+  config Json?
+  error  String?
+
+  lastSyncAt DateTime?
+  nextSyncAt DateTime?
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerId        String?      @db.Uuid
+
+  workspace     Workspace?
+  credentials   OAuthCredential[]
+  syncJobs      SyncJob[]
+  syncCursors   SyncCursor[]
+  resources     ExternalResource[]
+  changes       ExternalChange[]
+  logs          ConnectorLog[]
+  organizations OrganizationConnector[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, provider])
+  @@index([organizationId, status])
+  @@map("connectors")
+}
+
+model OrganizationConnector {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorId    String       @db.Uuid
+  connector      Connector    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  isEnabled Boolean @default(true)
+  // Per-organization overrides (which services to sync, schedules…).
+  settings Json?
+  status   ConnectorStatus @default(PENDING)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, connectorId])
+  @@map("organization_connectors")
+}
+
+model Workspace {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @unique @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  // Provider-side identity: Google customer id, Slack team id, …
+  externalId String?
+  domain     String?
+  name       String?
+  adminEmail String?
+  metadata   Json?
+  status     ConnectorStatus @default(CONNECTED)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@index([domain])
+  @@map("workspaces")
+}
+
+model OAuthCredential {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  // Account the grant belongs to (the connecting admin).
+  userEmail String?
+  scopes    String[]
+  // AES-256-GCM encrypted refresh token — never stored in plaintext,
+  // never returned by any API.
+  encryptedRefreshToken String
+  accessTokenExpiresAt  DateTime?
+  tokenType             String           @default("Bearer")
+  status                CredentialStatus @default(ACTIVE)
+  lastRefreshedAt       DateTime?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([connectorId])
+  @@index([organizationId])
+  @@map("oauth_credentials")
+}
+
+model SyncJob {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  type   SyncJobType
+  status SyncJobStatus @default(PENDING)
+  // Which provider service this job covers: drive, docs, gmail, calendar…
+  service String?
+
+  // Temporal linkage for observability.
+  workflowId String
+  runId      String?
+
+  // Counters: {discovered, created, updated, deleted, permissions, errors}
+  stats Json?
+  error String?
+
+  organizationId String @db.Uuid
+
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([connectorId, status])
+  @@index([organizationId, createdAt])
+  @@index([workflowId])
+  @@map("sync_jobs")
+}
+
+model SyncCursor {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  // drive | gmail | calendar | permissions …
+  service String
+  // Narrower scope inside a service (a shared drive id, a calendar id).
+  resourceScope String @default("")
+  // Opaque provider cursor: Drive changes pageToken, Gmail historyId,
+  // Calendar syncToken.
+  cursor String
+  status ConnectorStatus @default(CONNECTED)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([connectorId, service, resourceScope])
+  @@map("sync_cursors")
+}
+
+model ExternalResource {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  externalId String
+  type       ExternalResourceType
+  status     ExternalResourceStatus @default(ACTIVE)
+
+  title      String?
+  mimeType   String?
+  url        String?
+  ownerEmail String?
+  // Provider-side hierarchy (Drive parent folder id, Gmail thread id…).
+  parentExternalId String?
+  driveId          String?
+  sizeBytes        BigInt?
+  checksum         String?
+  version          String?
+  externalCreatedAt DateTime?
+  externalUpdatedAt DateTime?
+  // Service-specific extras (labels, attendees, worksheet names, …).
+  metadata Json?
+
+  organizationId String @db.Uuid
+
+  permissions ResourcePermission[]
+  versions    ResourceVersion[]
+  changeEvents ExternalChange[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([connectorId, externalId])
+  @@index([organizationId, type])
+  @@index([connectorId, type])
+  @@index([parentExternalId])
+  @@map("external_resources")
+}
+
+model ExternalChange {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  resourceId  String?           @db.Uuid
+  resource    ExternalResource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  externalId String
+  service    String
+  changeType ChangeType
+  // Raw provider change payload for replay/debugging.
+  payload Json?
+
+  occurredAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([connectorId, occurredAt])
+  @@index([organizationId, changeType])
+  @@map("external_changes")
+}
+
+model ResourcePermission {
+  id String @id @default(uuid()) @db.Uuid
+
+  resourceId String           @db.Uuid
+  resource   ExternalResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  externalPermissionId String?
+  principalType        PrincipalType
+  // Email of the user/group; null for DOMAIN/ANYONE grants.
+  principalEmail String?
+  domain         String?
+  role           PermissionRole
+  status         ExternalResourceStatus @default(ACTIVE)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([resourceId])
+  @@index([organizationId, principalEmail])
+  @@map("resource_permissions")
+}
+
+model ResourceVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  resourceId String           @db.Uuid
+  resource   ExternalResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  version          String
+  checksum         String?
+  sizeBytes        BigInt?
+  modifiedByEmail  String?
+  externalModifiedAt DateTime?
+  metadata         Json?
+  status           ExternalResourceStatus @default(ACTIVE)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([resourceId, version])
+  @@map("resource_versions")
+}
+
+model ConnectorLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  connectorId String    @db.Uuid
+  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  level ConnectorLogLevel @default(INFO)
+  // Namespaced event name: oauth.connected, sync.drive.completed, …
+  event   String
+  message String
+  context Json?
+  status  ConnectorStatus?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([connectorId, createdAt])
+  @@index([organizationId, level])
+  @@map("connector_logs")
 }

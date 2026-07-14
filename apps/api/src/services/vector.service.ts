@@ -65,6 +65,18 @@ export class VectorService {
     return results.map((r) => ({ id: r.id, score: r.score, payload: r.payload }));
   }
 
+  /** Remove all points matching a payload filter (e.g. one document). */
+  async deleteByFilter(collection: string, filter: Record<string, unknown>): Promise<void> {
+    const { exists } = await this.client.collectionExists(collection);
+    if (!exists) return;
+    await this.client.delete(collection, { wait: true, filter });
+  }
+
+  async collectionExists(name: string): Promise<boolean> {
+    const { exists } = await this.client.collectionExists(name);
+    return exists;
+  }
+
   async health(): Promise<boolean> {
     try {
       await this.client.getCollections();

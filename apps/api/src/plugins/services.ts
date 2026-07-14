@@ -1,9 +1,11 @@
 import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
+import { createEmbeddingProvider, type EmbeddingProvider } from '@company-brain/knowledge';
 import { StorageService } from '../services/storage.service.js';
 import { VectorService } from '../services/vector.service.js';
 import { QueueService } from '../services/queue.service.js';
 import { TemporalService } from '../services/temporal.service.js';
+import { config } from '../config/index.js';
 import { createRedisConnection } from './redis.js';
 
 declare module 'fastify' {
@@ -12,6 +14,7 @@ declare module 'fastify' {
     vector: VectorService;
     queues: QueueService;
     temporal: TemporalService;
+    embeddings: EmbeddingProvider;
   }
 }
 
@@ -28,6 +31,9 @@ export default fp(
     const queues = new QueueService(queueConnection);
     // Lazy client: no connection is opened until the first workflow call.
     const temporal = new TemporalService();
+    // Same provider config as the worker: query vectors must share the
+    // embedding space of the indexed chunks.
+    const embeddings = createEmbeddingProvider(config.embeddings);
 
     // Non-fatal in dev: infra containers may still be starting.
     try {
@@ -40,6 +46,7 @@ export default fp(
     app.decorate('vector', vector);
     app.decorate('queues', queues);
     app.decorate('temporal', temporal);
+    app.decorate('embeddings', embeddings);
 
     app.addHook('onClose', async () => {
       await queues.close();
