@@ -418,3 +418,200 @@ export interface SearchResponse {
   mode: string;
   results: SearchResult[];
 }
+
+// ── Knowledge Graph (Phase 2) types ───────────────────────────────
+
+export interface KnowledgeObjectSummary {
+  id: string;
+  type: string;
+  title: string;
+  summary: string | null;
+  status: string;
+  priority: string;
+  confidence: number;
+  version: number;
+  sourceDocumentId: string | null;
+  mentionCount: number;
+  relationshipCount: number;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeObjectList {
+  total: number;
+  page: number;
+  pageSize: number;
+  countsByType: Record<string, number>;
+  objects: KnowledgeObjectSummary[];
+}
+
+export interface KnowledgeRelationshipEdge {
+  id: string;
+  type: string;
+  confidence: number;
+  direction?: 'outgoing' | 'incoming';
+  from: { id: string; type: string; title: string };
+  to: { id: string; type: string; title: string };
+  sourceDocumentId?: string | null;
+}
+
+export interface KnowledgeEntityDetail extends KnowledgeObjectSummary {
+  description: string | null;
+  metadata: Record<string, unknown> | null;
+  createdBy: string | null;
+  aliases: Array<{ id: string; alias: string; source: string }>;
+  references: Array<{
+    id: string;
+    kind: string;
+    documentId: string | null;
+    url: string | null;
+    label: string | null;
+  }>;
+  versions: Array<{
+    id: string;
+    version: number;
+    changeType: string;
+    changedBy: string | null;
+    snapshot: Record<string, unknown>;
+    createdAt: string;
+  }>;
+  mentions: Array<{
+    id: string;
+    snippet: string | null;
+    confidence: number;
+    createdAt: string;
+    document: { id: string; title: string; fileName: string };
+  }>;
+  relationsFrom: Array<{
+    id: string;
+    type: string;
+    confidence: number;
+    to: { id: string; type: string; title: string };
+  }>;
+  relationsTo: Array<{
+    id: string;
+    type: string;
+    confidence: number;
+    from: { id: string; type: string; title: string };
+  }>;
+  timeline: TimelineEventItem[];
+  mergedInto: { id: string; title: string } | null;
+  mergedFrom: Array<{ id: string; title: string }>;
+  sourceDocument: { id: string; title: string; fileName: string } | null;
+}
+
+export interface TimelineEventItem {
+  id: string;
+  type: string;
+  title: string | null;
+  payload: Record<string, unknown> | null;
+  occurredAt: string;
+  actor: string | null;
+  documentId: string | null;
+  object?: { id: string; type: string; title: string };
+}
+
+export interface KnowledgeGraphData {
+  nodes: Array<{
+    id: string;
+    type: string;
+    title: string;
+    status: string;
+    priority: string;
+    confidence: number;
+    mentionCount: number;
+  }>;
+  edges: Array<{ id: string; from: string; to: string; type: string; confidence: number }>;
+}
+
+export interface KnowledgeStats {
+  entities: number;
+  relationships: number;
+  duplicatesResolved: number;
+  mentions: number;
+  byType: Array<{ type: string; count: number; avgConfidence: number | null }>;
+  recentRuns: Array<{ documentId: string; title: string; run: Record<string, unknown> | null }>;
+}
+
+export interface KnowledgeEntitySearchResponse {
+  query: string;
+  results: Array<{
+    id: string;
+    type: string;
+    title: string;
+    summary: string | null;
+    status: string;
+    priority: string;
+    confidence: number;
+    mentionCount: number;
+  }>;
+}
+
+// ── Knowledge Graph (Phase 2) API ─────────────────────────────────
+
+function toQuery(params: Record<string, string | number | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  const suffix = query.toString();
+  return suffix ? `?${suffix}` : '';
+}
+
+export const knowledgeGraphApi = {
+  listObjects(
+    params: {
+      type?: string;
+      status?: string;
+      search?: string;
+      documentId?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ): Promise<KnowledgeObjectList> {
+    return request(`/api/v1/knowledge${toQuery(params)}`);
+  },
+
+  getEntity(id: string): Promise<KnowledgeEntityDetail> {
+    return request(`/api/v1/knowledge/entity/${id}`);
+  },
+
+  getRelationships(id: string): Promise<{
+    object: { id: string; title: string; type: string };
+    relationships: KnowledgeRelationshipEdge[];
+  }> {
+    return request(`/api/v1/knowledge/relationships/${id}`);
+  },
+
+  searchEntities(params: {
+    q: string;
+    type?: string;
+    limit?: number;
+  }): Promise<KnowledgeEntitySearchResponse> {
+    return request(`/api/v1/knowledge/search${toQuery(params)}`);
+  },
+
+  getGraph(
+    params: { rootId?: string; type?: string; depth?: number; limit?: number } = {},
+  ): Promise<KnowledgeGraphData> {
+    return request(`/api/v1/knowledge/graph${toQuery(params)}`);
+  },
+
+  getTimeline(
+    params: { objectId?: string; documentId?: string; limit?: number } = {},
+  ): Promise<{ events: TimelineEventItem[] }> {
+    return request(`/api/v1/knowledge/timeline${toQuery(params)}`);
+  },
+
+  getStats(): Promise<KnowledgeStats> {
+    return request('/api/v1/knowledge/stats');
+  },
+
+  reprocess(documentId: string): Promise<{ documentId: string; workflowId: string }> {
+    return request('/api/v1/knowledge/reprocess', {
+      method: 'POST',
+      body: JSON.stringify({ documentId }),
+    });
+  },
+};

@@ -6,7 +6,9 @@ import {
   createActivityContext,
   createKnowledgeActivities,
   createKnowledgeActivityContext,
+  createKnowledgeEngineActivities,
 } from '@company-brain/activities';
+import { createLLMProvider } from '@company-brain/knowledge-engine';
 import { config } from './config.js';
 import { connectWithRetry } from './connection.js';
 import { startHealthServer } from './health-server.js';
@@ -32,6 +34,8 @@ async function main(): Promise<void> {
   // Long-lived clients shared by every activity invocation.
   const baseContext = createActivityContext(config.activities);
   const activityContext = createKnowledgeActivityContext(baseContext, config.knowledge);
+  const llm = createLLMProvider(config.extraction);
+  logger.info({ provider: llm.name, model: llm.model }, 'knowledge extraction LLM configured');
 
   const worker = await Worker.create({
     connection,
@@ -44,6 +48,7 @@ async function main(): Promise<void> {
     activities: {
       ...createActivities(activityContext),
       ...createKnowledgeActivities(activityContext),
+      ...createKnowledgeEngineActivities({ ...activityContext, llm }),
     },
     // In-flight activities get this long to finish on shutdown before
     // being cancelled (their tasks are then retried by another worker).

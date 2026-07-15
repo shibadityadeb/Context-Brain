@@ -42,6 +42,14 @@ const envSchema = z.object({
 
   CHUNK_SIZE: z.coerce.number().int().positive().default(400),
   CHUNK_OVERLAP: z.coerce.number().int().nonnegative().default(60),
+
+  // Phase 2 — knowledge extraction LLM (provider-agnostic).
+  EXTRACTION_PROVIDER: z
+    .enum(['anthropic', 'openai', 'gemini', 'local', 'mock'])
+    .default('anthropic'),
+  EXTRACTION_MODEL: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  LOCAL_LLM_URL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -117,6 +125,18 @@ export const config = {
   },
   activities: activityConfig,
   knowledge: knowledgeConfig,
+  extraction: {
+    provider: env.EXTRACTION_PROVIDER,
+    model: env.EXTRACTION_MODEL,
+    apiKey: {
+      anthropic: env.ANTHROPIC_API_KEY,
+      openai: env.OPENAI_API_KEY,
+      gemini: env.GEMINI_API_KEY,
+      local: undefined,
+      mock: undefined,
+    }[env.EXTRACTION_PROVIDER],
+    baseUrl: env.LOCAL_LLM_URL,
+  },
 } as const;
 
 export type WorkerConfig = typeof config;
