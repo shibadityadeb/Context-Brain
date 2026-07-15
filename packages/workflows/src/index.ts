@@ -14,6 +14,16 @@ export {
 } from './workflows/document-ingestion.workflow.js';
 
 export {
+  knowledgeExtractionWorkflow,
+  relationshipWorkflow,
+  deduplicationWorkflow,
+  timelineWorkflow,
+  knowledgeEmbeddingWorkflow,
+  type KnowledgeWorkflowInput,
+  type KnowledgeWorkflowResult,
+} from './workflows/knowledge-engine.workflow.js';
+
+export {
   workspaceInitialSyncWorkflow,
   incrementalSyncWorkflow,
   driveSyncWorkflow,
@@ -46,8 +56,10 @@ export {
   getReportQuery,
   getIngestionProgressQuery,
   getSyncProgressQuery,
+  getKnowledgeProgressQuery,
   type IngestionProgress,
   type ConnectorSyncProgress,
+  type KnowledgeProgress,
 } from './definitions.js';
 export { TASK_QUEUES, WORKFLOW_TYPES, type TaskQueue, type WorkflowType } from './constants.js';
 export { DEFAULT_RETRY_POLICY, QUICK_RETRY_POLICY } from './retry-policies.js';

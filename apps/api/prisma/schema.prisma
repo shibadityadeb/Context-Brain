@@ -349,6 +349,8 @@ model Document {
   tags           DocumentTag[]
   processingJobs ProcessingJob[]
   externalResources ExternalResource[]
+  knowledgeObjects  KnowledgeObject[] @relation("KnowledgeObjectSource")
+  entityMentions    EntityMention[]   @relation("KnowledgeMentions")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -909,4 +911,325 @@ model ConnectorLog {
   @@index([connectorId, createdAt])
   @@index([organizationId, level])
   @@map("connector_logs")
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 2 — Organizational Knowledge Engine
+// Structured knowledge extracted from ingested documents: typed
+// objects, relationships (the knowledge graph), aliases + mentions
+// (entity resolution), versions, and a per-object timeline.
+// ════════════════════════════════════════════════════════════════
+
+enum KnowledgeObjectType {
+  PERSON
+  TEAM
+  ORGANIZATION
+  PROJECT
+  TASK
+  BUG
+  ISSUE
+  MEETING
+  ACTION_ITEM
+  DECISION
+  DEADLINE
+  FEATURE
+  REQUIREMENT
+  MILESTONE
+  RISK
+  QUESTION
+  POLICY
+  CUSTOMER
+  VENDOR
+  BOOKING
+  PAYMENT
+  INVOICE
+  PRODUCT
+  SERVICE
+  LOCATION
+  EMAIL
+  CALENDAR_EVENT
+  DOCUMENT
+  FILE
+  URL
+  EVENT
+  CONVERSATION
+  COMMENT
+  OTHER
+}
+
+enum KnowledgeObjectStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  RESOLVED
+  COMPLETED
+  CANCELLED
+  ACTIVE
+  ARCHIVED
+  UNKNOWN
+}
+
+enum KnowledgePriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  NONE
+}
+
+enum KnowledgeRelationshipType {
+  ASSIGNED_TO
+  REPORTED
+  CREATED
+  CREATES
+  BELONGS_TO
+  OWNS
+  BLOCKS
+  DEPENDS_ON
+  MENTIONS
+  LINKS_TO
+  PART_OF
+  ATTENDED
+  WORKS_ON
+  MANAGES
+  RESOLVES
+  AFFECTS
+  SCHEDULED_FOR
+  RESPONSIBLE_FOR
+  RELATES_TO
+  DUPLICATES
+}
+
+enum TimelineEventType {
+  CREATED
+  UPDATED
+  MENTIONED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  ASSIGNED
+  RELATIONSHIP_ADDED
+  CONFIDENCE_CHANGED
+  MERGED
+  RESTORED
+  DELETED
+}
+
+model KnowledgeObject {
+  id String @id @default(uuid()) @db.Uuid
+
+  type   KnowledgeObjectType
+  title  String
+  // Lower-cased, whitespace/punctuation-normalized title for dedup lookups.
+  normalizedTitle String
+  summary     String? @db.Text
+  description String? @db.Text
+
+  status     KnowledgeObjectStatus @default(UNKNOWN)
+  priority   KnowledgePriority     @default(NONE)
+  confidence Float                 @default(0.5)
+  version    Int                   @default(1)
+
+  // Provenance: where this object was first extracted from.
+  sourceDocumentId String?   @db.Uuid
+  sourceDocument   Document? @relation("KnowledgeObjectSource", fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  sourceChunkId    String?   @db.Uuid
+  createdBy        String? // "extraction:<provider>" or a user id
+
+  // Type-specific extras (assignee email, amounts, dates, URLs, …).
+  metadata Json?
+
+  // Deduplication: when merged, this object is soft-deleted and points
+  // at the surviving object.
+  mergedIntoId String?           @db.Uuid
+  mergedInto   KnowledgeObject?  @relation("KnowledgeMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom   KnowledgeObject[] @relation("KnowledgeMerge")
+
+  organizationId String @db.Uuid
+
+  aliases       EntityAlias[]
+  mentions      EntityMention[]
+  references    KnowledgeReference[]
+  versions      KnowledgeVersion[]
+  timeline      TimelineEvent[]
+  tags          KnowledgeObjectTag[]
+  relationsFrom KnowledgeRelationship[] @relation("KnowledgeRelFrom")
+  relationsTo   KnowledgeRelationship[] @relation("KnowledgeRelTo")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, type])
+  @@index([organizationId, normalizedTitle])
+  @@index([organizationId, status])
+  @@index([sourceDocumentId])
+  @@map("knowledge_objects")
+}
+
+model KnowledgeRelationship {
+  id String @id @default(uuid()) @db.Uuid
+
+  type KnowledgeRelationshipType
+
+  fromId String          @db.Uuid
+  from   KnowledgeObject @relation("KnowledgeRelFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId   String          @db.Uuid
+  to     KnowledgeObject @relation("KnowledgeRelTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  confidence Float @default(0.5)
+
+  // Provenance of the evidence that produced this edge.
+  sourceDocumentId String? @db.Uuid
+  sourceChunkId    String? @db.Uuid
+  metadata         Json?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([fromId, toId, type])
+  @@index([organizationId, type])
+  @@index([toId])
+  @@map("knowledge_relationships")
+}
+
+model EntityAlias {
+  id String @id @default(uuid()) @db.Uuid
+
+  objectId String          @db.Uuid
+  object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  alias           String
+  normalizedAlias String
+  // Where the alias came from: "extraction", "merge", "manual".
+  source     String @default("extraction")
+  confidence Float  @default(1)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@unique([objectId, normalizedAlias])
+  @@index([organizationId, normalizedAlias])
+  @@map("entity_aliases")
+}
+
+model EntityMention {
+  id String @id @default(uuid()) @db.Uuid
+
+  objectId String          @db.Uuid
+  object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  documentId String   @db.Uuid
+  document   Document @relation("KnowledgeMentions", fields: [documentId], references: [id], onDelete: Cascade)
+  chunkId    String?  @db.Uuid
+  // Short quote around the mention for display.
+  snippet    String?  @db.Text
+  confidence Float    @default(0.5)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([objectId])
+  @@index([documentId])
+  @@index([organizationId])
+  @@map("entity_mentions")
+}
+
+model TimelineEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  objectId String          @db.Uuid
+  object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  type  TimelineEventType
+  title String?
+  // Event-specific details (old/new status, merged object id, …).
+  payload    Json?
+  documentId String? @db.Uuid
+  actor      String?
+  occurredAt DateTime @default(now())
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([objectId, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@map("timeline_events")
+}
+
+model KnowledgeTag {
+  id String @id @default(uuid()) @db.Uuid
+
+  name String
+  slug String
+
+  organizationId String @db.Uuid
+
+  objects KnowledgeObjectTag[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, slug])
+  @@map("knowledge_tags")
+}
+
+model KnowledgeObjectTag {
+  objectId String          @db.Uuid
+  object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  tagId    String          @db.Uuid
+  tag      KnowledgeTag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([objectId, tagId])
+  @@map("knowledge_object_tags")
+}
+
+model KnowledgeReference {
+  id String @id @default(uuid()) @db.Uuid
+
+  objectId String          @db.Uuid
+  object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  // "document" | "chunk" | "url" | "external"
+  kind       String
+  documentId String? @db.Uuid
+  chunkId    String? @db.Uuid
+  url        String?
+  label      String?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([objectId])
+  @@index([organizationId])
+  @@map("knowledge_references")
+}
+
+model KnowledgeVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  objectId String          @db.Uuid
+  object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  version Int
+  // Full snapshot of the object at this version.
+  snapshot   Json
+  // "created" | "updated" | "merged" | "restored" | "status_changed"
+  changeType String
+  changedBy  String?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@unique([objectId, version])
+  @@index([organizationId])
+  @@map("knowledge_versions")
 }

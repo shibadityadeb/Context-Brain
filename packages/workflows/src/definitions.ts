@@ -25,6 +25,20 @@ export interface IngestionProgress {
 }
 export const getIngestionProgressQuery = defineQuery<IngestionProgress>('getIngestionProgress');
 
+/** knowledgeExtractionWorkflow — live pipeline progress. */
+export interface KnowledgeProgress {
+  documentId: string;
+  stage: 'EXTRACT' | 'RELATIONSHIPS' | 'DEDUPLICATE' | 'TIMELINE' | 'EMBED' | 'COMPLETE';
+  entitiesCreated: number;
+  entitiesUpdated: number;
+  relationshipsBuilt: number;
+  duplicatesResolved: number;
+  timelineEvents: number;
+  embedded: number;
+  error: string | null;
+}
+export const getKnowledgeProgressQuery = defineQuery<KnowledgeProgress>('getKnowledgeProgress');
+
 /** connector sync workflows — live page/resource counters. */
 export interface ConnectorSyncProgress {
   connectorId: string;

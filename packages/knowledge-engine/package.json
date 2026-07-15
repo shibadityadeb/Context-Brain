@@ -1,5 +1,5 @@
 {
-  "name": "@company-brain/activities",
+  "name": "@company-brain/knowledge-engine",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,21 +12,17 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
-    "test": "echo 'no tests' && exit 0"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@company-brain/knowledge": "workspace:*",
-    "@company-brain/knowledge-engine": "workspace:*",
-    "@prisma/client": "^6.19.3",
-    "@qdrant/js-client-rest": "^1.18.0",
-    "@temporalio/activity": "^1.20.2",
-    "ioredis": "^5.6.1",
-    "minio": "^8.0.5"
+    "@anthropic-ai/sdk": "^0.111.0",
+    "zod": "^3.24.3"
   },
   "devDependencies": {
     "@company-brain/config": "workspace:*",
     "@types/node": "^22.14.1",
     "eslint": "^9.24.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
   }
 }

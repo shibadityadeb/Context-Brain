@@ -1,7 +1,15 @@
-import { proxyActivities, setHandler, workflowInfo, log } from '@temporalio/workflow';
+import {
+  ParentClosePolicy,
+  proxyActivities,
+  setHandler,
+  startChild,
+  workflowInfo,
+  log,
+} from '@temporalio/workflow';
 import type { KnowledgeActivities } from '@company-brain/activities';
 import { DEFAULT_RETRY_POLICY } from '../retry-policies.js';
 import { getIngestionProgressQuery, type IngestionProgress } from '../definitions.js';
+import { knowledgeExtractionWorkflow } from './knowledge-engine.workflow.js';
 
 // Parsing can be CPU-heavy on large files; embedding may call slow external
 // APIs — give the pipeline generous per-attempt budgets and let Temporal
@@ -83,6 +91,21 @@ export async function documentIngestionWorkflow(
 
     progress.stage = 'COMPLETE';
     await finalize.finalizeIngestion({ ...io, success: true, chunkCount, embeddingCount });
+
+    // Phase 2: turn the ingested content into structured knowledge.
+    // Detached child — ingestion is READY regardless of extraction outcome.
+    try {
+      await startChild(knowledgeExtractionWorkflow, {
+        args: [{ documentId: input.documentId }],
+        workflowId: `${workflowId}-knowledge`,
+        parentClosePolicy: ParentClosePolicy.ABANDON,
+      });
+    } catch (error) {
+      log.warn('failed to start knowledge extraction workflow', {
+        documentId: input.documentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     return {
       documentId: input.documentId,

@@ -24,6 +24,7 @@
     "@company-brain/connector-google": "workspace:*",
     "@company-brain/events": "workspace:*",
     "@company-brain/knowledge": "workspace:*",
+    "@company-brain/knowledge-engine": "workspace:*",
     "@company-brain/types": "workspace:*",
     "@company-brain/utils": "workspace:*",
     "@company-brain/workflows": "workspace:*",

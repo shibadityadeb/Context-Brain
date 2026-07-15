@@ -20,3 +20,18 @@ export type {
   EmbedResult,
   FinalizeInput,
 } from './knowledge.activities.js';
+export {
+  createKnowledgeEngineActivities,
+  knowledgeCollectionForOrganization,
+} from './knowledge-engine.activities.js';
+export type {
+  KnowledgeEngineActivities,
+  KnowledgeEngineActivityContext,
+  KnowledgeRunInput,
+  ExtractStats,
+  RelationshipStats,
+  DedupStats,
+  TimelineStats,
+  KnowledgeEmbedStats,
+  FinalizeKnowledgeInput,
+} from './knowledge-engine.activities.js';
