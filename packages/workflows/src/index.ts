@@ -35,6 +35,8 @@ export type {
   CompleteSyncJobInput,
   IncrementalSyncInput,
   IncrementalSyncOutput,
+  IngestResourceInput,
+  IngestResourceOutput,
   DiscoverWorkspaceOutput,
 } from './connector-contract.js';
 

@@ -26,6 +26,25 @@ export async function googleGet<T>(
   url: string,
   params: Record<string, string | number | boolean | undefined> = {},
 ): Promise<T> {
+  const response = await googleFetch(ctx, url, params);
+  return (await response.json()) as T;
+}
+
+/** Authenticated GET returning the raw body (file downloads/exports). */
+export async function googleGetBinary(
+  ctx: ConnectorContext,
+  url: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+): Promise<Buffer> {
+  const response = await googleFetch(ctx, url, params);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function googleFetch(
+  ctx: ConnectorContext,
+  url: string,
+  params: Record<string, string | number | boolean | undefined>,
+): Promise<Response> {
   const target = new URL(url);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) target.searchParams.set(key, String(value));
@@ -33,7 +52,7 @@ export async function googleGet<T>(
   const token = await ctx.getAccessToken();
   const response = await fetch(target, { headers: { authorization: `Bearer ${token}` } });
 
-  if (response.ok) return (await response.json()) as T;
+  if (response.ok) return response;
 
   const body = (await response.json().catch(() => ({}))) as GoogleErrorBody;
   const reason = body.error?.errors?.[0]?.reason ?? body.error?.status ?? '';

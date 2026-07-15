@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { ApplicationFailure } from '@temporalio/activity';
 import type { Prisma } from '@prisma/client';
 import {
@@ -7,20 +8,38 @@ import {
   type SyncedResource,
 } from '@company-brain/connector-core';
 import type { EventType } from '@company-brain/events';
-import type {
-  CompleteSyncJobInput,
-  ConnectorActivitiesContract,
-  DiscoverWorkspaceOutput,
-  IncrementalSyncInput,
-  IncrementalSyncOutput,
-  StartSyncJobInput,
-  SyncPageInput,
-  SyncPageOutput,
+import { isSupported } from '@company-brain/knowledge';
+import {
+  WORKFLOW_TYPES,
+  type CompleteSyncJobInput,
+  type ConnectorActivitiesContract,
+  type DiscoverWorkspaceOutput,
+  type IncrementalSyncInput,
+  type IncrementalSyncOutput,
+  type IngestResourceInput,
+  type IngestResourceOutput,
+  type StartSyncJobInput,
+  type SyncPageInput,
+  type SyncPageOutput,
 } from '@company-brain/workflows';
+import { config } from './config.js';
 import { PROVIDER_IDS, type WorkerContext } from './context.js';
 
 /** Services that own an incremental cursor (drive feed covers doc views). */
 const CURSOR_SERVICES = new Set(['drive', 'gmail', 'calendar']);
+
+/** Google-native types always export to parseable text/csv. */
+const NATIVE_INGESTABLE_TYPES = new Set(['GOOGLE_DOC', 'GOOGLE_SHEET', 'GOOGLE_SLIDES']);
+
+/** Can this resource's content be exported and parsed by the pipeline? */
+function isIngestable(resource: SyncedResource): boolean {
+  if (resource.trashed) return false;
+  if (NATIVE_INGESTABLE_TYPES.has(resource.type)) return true;
+  if (resource.type === 'PDF' || resource.type === 'DRIVE_FILE') {
+    return resource.mimeType ? isSupported(resource.mimeType, resource.title ?? '') : false;
+  }
+  return false;
+}
 
 function eventTypeFor(resourceType: string, kind: ResourceChange['changeType']): EventType {
   if (kind === 'permission_changed') return 'resource.permission.changed';
@@ -106,6 +125,7 @@ export function createConnectorActivities(ctx: WorkerContext) {
     resource: SyncedResource,
     counts: PersistCounts,
     emitEvents: boolean,
+    ingestable?: string[],
   ): Promise<void> {
     const providerId = PROVIDER_IDS[connector.provider] ?? connector.provider;
     const existing = await prisma.externalResource.findUnique({
@@ -223,6 +243,17 @@ export function createConnectorActivities(ctx: WorkerContext) {
           if (!changeKind) changeKind = 'permission_changed';
         }
       }
+    }
+
+    // Queue for ingestion when content changed — or was never ingested
+    // (backfills resources synced before ingestion existed).
+    const neverIngested = row != null && row.documentId == null;
+    if (
+      ingestable &&
+      (changeKind === 'created' || changeKind === 'updated' || neverIngested) &&
+      isIngestable(resource)
+    ) {
+      ingestable.push(resource.externalId);
     }
 
     if (changeKind && row) {
@@ -373,8 +404,16 @@ export function createConnectorActivities(ctx: WorkerContext) {
       try {
         const page = await impl.sync(cctx, input.service, input.pageCursor);
         const counts = { created: 0, updated: 0, permissionChanges: 0, unchanged: 0 };
+        const ingestableExternalIds: string[] = [];
         for (const resource of page.resources) {
-          await persistResource(connector, input.service, resource, counts, true);
+          await persistResource(
+            connector,
+            input.service,
+            resource,
+            counts,
+            true,
+            ingestableExternalIds,
+          );
         }
 
         // Store the incremental anchor delivered with the last page.
@@ -414,7 +453,11 @@ export function createConnectorActivities(ctx: WorkerContext) {
           },
         });
 
-        return { nextPageCursor: page.nextPageCursor, resourceCount: page.resources.length };
+        return {
+          nextPageCursor: page.nextPageCursor,
+          resourceCount: page.resources.length,
+          ingestableExternalIds,
+        };
       } catch (error) {
         await logEvent(
           connector.id,
@@ -470,6 +513,7 @@ export function createConnectorActivities(ctx: WorkerContext) {
       try {
         const result = await impl.incrementalSync(cctx, input.service, cursorRow.cursor);
         const counts = { created: 0, updated: 0, permissionChanges: 0, unchanged: 0 };
+        const ingestableExternalIds: string[] = [];
         let deleted = 0;
 
         for (const change of result.changes) {
@@ -477,7 +521,14 @@ export function createConnectorActivities(ctx: WorkerContext) {
             await markResourceDeleted(connector, change.service, change.externalId);
             deleted += 1;
           } else if (change.resource) {
-            await persistResource(connector, change.service, change.resource, counts, true);
+            await persistResource(
+              connector,
+              change.service,
+              change.resource,
+              counts,
+              true,
+              ingestableExternalIds,
+            );
           }
         }
 
@@ -497,7 +548,7 @@ export function createConnectorActivities(ctx: WorkerContext) {
             } as Prisma.InputJsonValue,
           },
         });
-        return { changeCount: result.changes.length };
+        return { changeCount: result.changes.length, ingestableExternalIds };
       } catch (error) {
         if (error instanceof CursorExpiredError) {
           await prisma.syncCursor.delete({ where: { id: cursorRow.id } });
@@ -510,6 +561,165 @@ export function createConnectorActivities(ctx: WorkerContext) {
           );
           return { changeCount: 0, cursorExpired: true };
         }
+        toTemporalFailure(error);
+      }
+    },
+
+    /**
+     * Bridge from connector sync to the knowledge pipeline: export the
+     * resource's content, store it as a Document (+ version), then start
+     * documentIngestionWorkflow on the core queue where the knowledge
+     * activities (parse/chunk/embed/index) are hosted.
+     */
+    async ingestResource(input: IngestResourceInput): Promise<IngestResourceOutput> {
+      const connector = await requireConnector(input.connectorId);
+      const impl = providerConnector(connector.provider);
+      const cctx = ctx.connectorContext(connector.id, connector.organizationId);
+
+      const resource = await prisma.externalResource.findUnique({
+        where: {
+          connectorId_externalId: { connectorId: connector.id, externalId: input.externalId },
+        },
+      });
+      if (!resource || resource.status !== 'ACTIVE') {
+        return { queued: false, reason: 'resource missing or inactive' };
+      }
+      if (!impl.fetchContent) {
+        return { queued: false, reason: 'connector does not support content export' };
+      }
+
+      try {
+        const content = await impl.fetchContent(cctx, {
+          externalId: resource.externalId,
+          type: resource.type,
+          mimeType: resource.mimeType,
+          title: resource.title,
+        });
+        if (!content) return { queued: false, reason: 'no ingestable content' };
+
+        const checksum = createHash('sha256').update(content.data).digest('hex');
+        const bucket = config.storage.defaultBucket;
+
+        const document = resource.documentId
+          ? await prisma.document.findFirst({
+              where: { id: resource.documentId, deletedAt: null },
+            })
+          : null;
+        if (document && document.checksum === checksum) {
+          return { queued: false, documentId: document.id, reason: 'content unchanged' };
+        }
+
+        if (!(await ctx.storage.bucketExists(bucket))) {
+          await ctx.storage.makeBucket(bucket);
+        }
+
+        const version = document ? document.currentVersion + 1 : 1;
+        const documentId = document?.id ?? randomUUID();
+        const storageKey = `connectors/${connector.id}/${resource.id}/v${version}/${content.fileName}`;
+        await ctx.storage.putObject(bucket, storageKey, content.data, content.data.length, {
+          'Content-Type': content.mimeType,
+        });
+
+        const versionData = {
+          version,
+          storageKey,
+          fileSizeBytes: content.data.length,
+          checksum,
+          organizationId: connector.organizationId,
+        };
+        if (!document) {
+          await prisma.document.create({
+            data: {
+              id: documentId,
+              title: resource.title ?? content.fileName,
+              fileName: content.fileName,
+              mimeType: content.mimeType,
+              fileSizeBytes: content.data.length,
+              storageBucket: bucket,
+              storageKey,
+              checksum,
+              status: 'UPLOADED',
+              currentVersion: version,
+              organizationId: connector.organizationId,
+              versions: { create: versionData },
+            },
+          });
+          // Compare-and-set the link: parallel service syncs (drive + docs
+          // cover the same files) must not create two documents.
+          const linked = await prisma.externalResource.updateMany({
+            where: { id: resource.id, documentId: resource.documentId },
+            data: { documentId },
+          });
+          if (linked.count === 0) {
+            await prisma.document.delete({ where: { id: documentId } });
+            return { queued: false, reason: 'already ingested by a concurrent sync' };
+          }
+        } else {
+          await prisma.document.update({
+            where: { id: documentId },
+            data: {
+              title: resource.title ?? document.title,
+              fileName: content.fileName,
+              mimeType: content.mimeType,
+              fileSizeBytes: content.data.length,
+              storageBucket: bucket,
+              storageKey,
+              checksum,
+              status: 'UPLOADED',
+              currentVersion: version,
+              versions: { create: versionData },
+            },
+          });
+        }
+
+        // Mirror KnowledgeService.startIngestion: ProcessingJob + workflow.
+        const workflowId = `ingest-${documentId}-${Date.now()}`;
+        await prisma.processingJob.create({
+          data: {
+            documentId,
+            workflowId,
+            organizationId: connector.organizationId,
+            attempt: version,
+            status: 'PENDING',
+            stage: 'VALIDATE',
+            logs: [
+              {
+                stage: 'VALIDATE',
+                message: `queued from connector sync (${resource.type})`,
+                at: new Date().toISOString(),
+              },
+            ],
+          },
+        });
+        const client = await ctx.temporalClient();
+        const handle = await client.workflow.start(WORKFLOW_TYPES.documentIngestion, {
+          taskQueue: config.temporal.coreTaskQueue,
+          workflowId,
+          args: [{ documentId }],
+        });
+        await prisma.processingJob.updateMany({
+          where: { workflowId },
+          data: { runId: handle.firstExecutionRunId },
+        });
+
+        await logEvent(
+          connector.id,
+          connector.organizationId,
+          'INFO',
+          'ingest.queued',
+          `queued ingestion for ${resource.title ?? resource.externalId} (v${version})`,
+          { documentId, workflowId, externalId: resource.externalId },
+        );
+        return { queued: true, documentId, ingestionWorkflowId: workflowId };
+      } catch (error) {
+        await logEvent(
+          connector.id,
+          connector.organizationId,
+          'ERROR',
+          'ingest.failed',
+          (error as Error).message,
+          { externalId: input.externalId },
+        );
         toTemporalFailure(error);
       }
     },

@@ -2,9 +2,11 @@ import type {
   ConnectorContext,
   IncrementalSyncResult,
   ResourceChange,
+  ResourceContent,
   SyncPage,
 } from '@company-brain/connector-core';
-import { googleGet } from '../http.js';
+import { googleGet, googleGetBinary } from '../http.js';
+import { GOOGLE_MIME } from '../config.js';
 import {
   mapDriveFile,
   mapSharedDrive,
@@ -124,6 +126,84 @@ export async function driveIncrementalSync(
   }
 
   return { changes, nextCursor: newStartPageToken };
+}
+
+/** Google-native formats export to text; regular files download as-is. */
+const EXPORTS: Record<string, { mimeType: string; extension: string }> = {
+  [GOOGLE_MIME.doc]: { mimeType: 'text/plain', extension: '.txt' },
+  [GOOGLE_MIME.sheet]: { mimeType: 'text/csv', extension: '.csv' },
+  [GOOGLE_MIME.slides]: { mimeType: 'text/plain', extension: '.txt' },
+};
+
+/** Regular Drive files we download for ingestion (must have a parser). */
+const DOWNLOADABLE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+  'text/markdown',
+  'text/html',
+  'text/csv',
+  'application/json',
+]);
+
+/** Drive export caps exports at 10MB; keep direct downloads bounded too. */
+const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+
+function safeFileName(title: string | null | undefined, fallback: string, extension: string) {
+  const base = (title ?? fallback).replace(/[/\\]/g, '-').slice(0, 180);
+  return base.toLowerCase().endsWith(extension) ? base : `${base}${extension}`;
+}
+
+const EXTENSION_BY_MIME: Record<string, string> = {
+  'application/pdf': '.pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'text/plain': '.txt',
+  'text/markdown': '.md',
+  'text/html': '.html',
+  'text/csv': '.csv',
+  'application/json': '.json',
+};
+
+/**
+ * Export (Google-native) or download (regular) one Drive file's content.
+ * Returns null for resources that cannot be ingested.
+ */
+export async function driveFetchContent(
+  ctx: ConnectorContext,
+  resource: { externalId: string; mimeType?: string | null; title?: string | null },
+): Promise<ResourceContent | null> {
+  const mimeType = resource.mimeType ?? '';
+
+  const exportTarget = EXPORTS[mimeType];
+  if (exportTarget) {
+    const data = await googleGetBinary(ctx, `${DRIVE}/files/${resource.externalId}/export`, {
+      mimeType: exportTarget.mimeType,
+    });
+    return {
+      data,
+      mimeType: exportTarget.mimeType,
+      fileName: safeFileName(resource.title, resource.externalId, exportTarget.extension),
+    };
+  }
+
+  if (DOWNLOADABLE_MIME_TYPES.has(mimeType)) {
+    const data = await googleGetBinary(ctx, `${DRIVE}/files/${resource.externalId}`, {
+      alt: 'media',
+      supportsAllDrives: true,
+    });
+    if (data.length > MAX_DOWNLOAD_BYTES) return null;
+    return {
+      data,
+      mimeType,
+      fileName: safeFileName(
+        resource.title,
+        resource.externalId,
+        EXTENSION_BY_MIME[mimeType] ?? '',
+      ),
+    };
+  }
+
+  return null;
 }
 
 /** Drive "about" — identifies the account/workspace behind the grant. */
