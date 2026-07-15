@@ -1,4 +1,4 @@
-import { executeChild, proxyActivities, setHandler, workflowInfo } from '@temporalio/workflow';
+import { executeChild, log, proxyActivities, setHandler, workflowInfo } from '@temporalio/workflow';
 import type { ConnectorActivitiesContract } from '../connector-contract.js';
 import { DEFAULT_RETRY_POLICY } from '../retry-policies.js';
 import { getSyncProgressQuery, type ConnectorSyncProgress } from '../definitions.js';
@@ -18,6 +18,38 @@ const bookkeeping = proxyActivities<ConnectorActivitiesContract>({
   startToCloseTimeout: '30 seconds',
   retry: { ...DEFAULT_RETRY_POLICY, maximumAttempts: 8 },
 });
+
+// Content export + document creation per resource. A single resource that
+// cannot be exported must never fail the whole sync, so retries are short
+// and callers swallow terminal failures.
+const ingestion = proxyActivities<ConnectorActivitiesContract>({
+  startToCloseTimeout: '5 minutes',
+  retry: {
+    ...DEFAULT_RETRY_POLICY,
+    maximumAttempts: 3,
+    nonRetryableErrorTypes: ['TOKEN_EXPIRED', 'PERMISSION_DENIED', 'NotFound'],
+  },
+});
+
+/** Queue ingestion for each synced resource; failures only log. */
+async function ingestResources(
+  connectorId: string,
+  externalIds: string[],
+  progress: { ingested: number },
+): Promise<void> {
+  for (const externalId of externalIds) {
+    try {
+      const result = await ingestion.ingestResource({ connectorId, externalId });
+      if (result.queued) progress.ingested += 1;
+    } catch (error) {
+      log.warn('resource ingestion failed', {
+        connectorId,
+        externalId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
 
 export interface ServiceSyncInput {
   connectorId: string;
@@ -48,6 +80,7 @@ async function runServiceSync(
     service,
     pages: 0,
     resources: 0,
+    ingested: 0,
     done: false,
     error: null,
   };
@@ -63,16 +96,21 @@ async function runServiceSync(
   try {
     let pageCursor: string | null = null;
     do {
-      const page: { nextPageCursor: string | null; resourceCount: number } =
-        await activities.syncServicePage({
-          connectorId: input.connectorId,
-          service,
-          jobId,
-          pageCursor,
-        });
+      const page: {
+        nextPageCursor: string | null;
+        resourceCount: number;
+        ingestableExternalIds: string[];
+      } = await activities.syncServicePage({
+        connectorId: input.connectorId,
+        service,
+        jobId,
+        pageCursor,
+      });
       pageCursor = page.nextPageCursor;
       progress.pages += 1;
       progress.resources += page.resourceCount;
+      // Feed created/updated content into the knowledge pipeline.
+      await ingestResources(input.connectorId, page.ingestableExternalIds ?? [], progress);
     } while (pageCursor !== null);
 
     await bookkeeping.completeSyncJob({
@@ -208,6 +246,8 @@ export async function incrementalSyncWorkflow(input: { connectorId: string }): P
         jobId,
       });
       changes[service] = result.changeCount;
+      const ingestProgress = { ingested: 0 };
+      await ingestResources(input.connectorId, result.ingestableExternalIds ?? [], ingestProgress);
       await bookkeeping.completeSyncJob({
         jobId,
         connectorId: input.connectorId,

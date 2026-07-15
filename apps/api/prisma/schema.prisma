@@ -348,6 +348,7 @@ model Document {
   embeddings     EmbeddingReference[]
   tags           DocumentTag[]
   processingJobs ProcessingJob[]
+  externalResources ExternalResource[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -789,6 +790,10 @@ model ExternalResource {
   metadata Json?
 
   organizationId String @db.Uuid
+
+  // The knowledge Document created from this resource's exported content.
+  documentId String?   @db.Uuid
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   permissions ResourcePermission[]
   versions    ResourceVersion[]

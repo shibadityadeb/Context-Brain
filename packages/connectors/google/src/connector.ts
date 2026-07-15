@@ -5,11 +5,17 @@ import {
   type DiscoveryResult,
   type HealthResult,
   type IncrementalSyncResult,
+  type ResourceContent,
   type SyncPage,
 } from '@company-brain/connector-core';
 import { GOOGLE_MIME, GOOGLE_PROVIDER, GOOGLE_SCOPES, GOOGLE_SERVICES } from './config.js';
 import { googleGet } from './http.js';
-import { driveAbout, driveIncrementalSync, driveSyncPage } from './services/drive.js';
+import {
+  driveAbout,
+  driveFetchContent,
+  driveIncrementalSync,
+  driveSyncPage,
+} from './services/drive.js';
 import { gmailIncrementalSync, gmailSyncPage } from './services/gmail.js';
 import { calendarIncrementalSync, calendarSyncPage } from './services/calendar.js';
 
@@ -188,6 +194,23 @@ export class GoogleWorkspaceConnector extends BaseConnector {
         return calendarIncrementalSync(ctx, cursor);
       default:
         throw new Error(`Unknown Google service: ${service}`);
+    }
+  }
+
+  /** Content export for knowledge ingestion — Drive-backed resources only. */
+  async fetchContent(
+    ctx: ConnectorContext,
+    resource: { externalId: string; type: string; mimeType?: string | null; title?: string | null },
+  ): Promise<ResourceContent | null> {
+    switch (resource.type) {
+      case 'GOOGLE_DOC':
+      case 'GOOGLE_SHEET':
+      case 'GOOGLE_SLIDES':
+      case 'PDF':
+      case 'DRIVE_FILE':
+        return driveFetchContent(ctx, resource);
+      default:
+        return null;
     }
   }
 }

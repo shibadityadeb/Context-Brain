@@ -22,6 +22,8 @@ export interface SyncPageInput {
 export interface SyncPageOutput {
   nextPageCursor: string | null;
   resourceCount: number;
+  /** Created/updated resources whose content should be (re-)ingested. */
+  ingestableExternalIds: string[];
 }
 
 export interface CompleteSyncJobInput {
@@ -43,6 +45,22 @@ export interface IncrementalSyncOutput {
   cursorMissing?: boolean;
   /** Provider invalidated the cursor — schedule a full resync. */
   cursorExpired?: boolean;
+  /** Created/updated resources whose content should be (re-)ingested. */
+  ingestableExternalIds?: string[];
+}
+
+export interface IngestResourceInput {
+  connectorId: string;
+  externalId: string;
+}
+
+export interface IngestResourceOutput {
+  /** True when an ingestion workflow was started for this resource. */
+  queued: boolean;
+  documentId?: string;
+  ingestionWorkflowId?: string;
+  /** Why nothing was queued (unsupported type, unchanged content, …). */
+  reason?: string;
 }
 
 export interface DiscoverWorkspaceOutput {
@@ -58,4 +76,6 @@ export interface ConnectorActivitiesContract {
   completeSyncJob(input: CompleteSyncJobInput): Promise<void>;
   runIncrementalSync(input: IncrementalSyncInput): Promise<IncrementalSyncOutput>;
   markConnectorSynced(input: { connectorId: string; nextSyncInMinutes: number }): Promise<void>;
+  /** Export a resource's content and start its document-ingestion workflow. */
+  ingestResource(input: IngestResourceInput): Promise<IngestResourceOutput>;
 }

@@ -31,6 +31,8 @@ export interface ConnectorSyncProgress {
   service: string;
   pages: number;
   resources: number;
+  /** Documents queued into the knowledge-ingestion pipeline. */
+  ingested: number;
   done: boolean;
   error: string | null;
 }

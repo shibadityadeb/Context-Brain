@@ -460,6 +460,9 @@ importers:
       '@company-brain/events':
         specifier: workspace:*
         version: link:../../packages/events
+      '@company-brain/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
       '@company-brain/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
@@ -467,6 +470,9 @@ importers:
         specifier: ^6.6.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@temporalio/activity':
+        specifier: ^1.20.2
+        version: 1.20.2
+      '@temporalio/client':
         specifier: ^1.20.2
         version: 1.20.2
       '@temporalio/worker':
@@ -478,6 +484,9 @@ importers:
       ioredis:
         specifier: ^5.11.1
         version: 5.11.1
+      minio:
+        specifier: ^8.0.7
+        version: 8.0.7
       pino:
         specifier: ^9.6.0
         version: 9.14.0

@@ -10,6 +10,7 @@ export type {
   PermissionRole,
   PrincipalType,
   ResourceChange,
+  ResourceContent,
   SyncedPermission,
   SyncedResource,
   SyncPage,

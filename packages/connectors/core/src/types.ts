@@ -40,6 +40,16 @@ export interface SyncedResource {
 
 export type ChangeKind = 'created' | 'updated' | 'deleted' | 'permission_changed';
 
+/** Exported/downloaded content of a resource, ready for ingestion. */
+export interface ResourceContent {
+  /** Raw bytes of the exported/downloaded file. */
+  data: Buffer;
+  /** MIME type of `data` (post-export, e.g. text/plain for a Google Doc). */
+  mimeType: string;
+  /** File name including an extension matching `mimeType`. */
+  fileName: string;
+}
+
 export interface ResourceChange {
   externalId: string;
   service: string;
@@ -142,6 +152,16 @@ export interface Connector {
     service: string,
     cursor: string,
   ): Promise<IncrementalSyncResult>;
+
+  /**
+   * Export/download the content of one resource for knowledge ingestion.
+   * Returns null when the resource has no ingestable content (folders,
+   * calendars, unsupported binary formats, …).
+   */
+  fetchContent?(
+    ctx: ConnectorContext,
+    resource: { externalId: string; type: string; mimeType?: string | null; title?: string | null },
+  ): Promise<ResourceContent | null>;
 }
 
 /** Constructor signature used by the registry. */
