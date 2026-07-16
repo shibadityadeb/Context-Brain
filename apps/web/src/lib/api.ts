@@ -615,3 +615,250 @@ export const knowledgeGraphApi = {
     });
   },
 };
+
+// ── Company Memory Engine ─────────────────────────────────────────
+
+export interface MemoryScoreBreakdown {
+  composite: number;
+  freshness: number;
+  recency: number;
+  frequency: number;
+}
+
+export interface MemorySummary {
+  id: string;
+  memoryType: string;
+  subject: string;
+  summary: string;
+  status: string;
+  source: string;
+  confidence: number;
+  importance: number;
+  version: number;
+  entityId: string | null;
+  entityType: string | null;
+  entityLabel: string | null;
+  validFrom: string;
+  validTo: string | null;
+  createdAt: string;
+  updatedAt: string;
+  score: MemoryScoreBreakdown | null;
+  versionCount: number;
+  conflictCount: number;
+  eventCount: number;
+}
+
+export interface MemoryList {
+  total: number;
+  page: number;
+  pageSize: number;
+  countsByType: Record<string, number>;
+  memories: MemorySummary[];
+}
+
+export interface MemoryTimelineEventItem {
+  id: string;
+  type: string;
+  title: string;
+  description: string | null;
+  source: string;
+  actor: string | null;
+  confidence: number;
+  documentId: string | null;
+  memoryId: string | null;
+  occurredAt: string;
+}
+
+export interface MemoryTimeline {
+  entityId: string;
+  entityLabel: string | null;
+  entityType: string | null;
+  eventCount: number;
+  firstEventAt: string | null;
+  lastEventAt: string | null;
+  events: MemoryTimelineEventItem[];
+}
+
+export interface MemoryVersionItem {
+  version: number;
+  changeType: string;
+  changeSummary: string | null;
+  changedBy: string | null;
+  snapshot: unknown;
+  at: string;
+}
+
+export interface ConflictSide {
+  value: unknown;
+  source: string;
+  confidence: number;
+  at: string;
+}
+
+export interface ConflictItem {
+  id: string;
+  memoryId: string;
+  entityId: string | null;
+  attribute: string;
+  latest: ConflictSide;
+  previous: ConflictSide;
+  status: string;
+  resolution: string | null;
+  resolvedValue: unknown;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  memory?: { id: string; subject: string; entityLabel: string | null };
+}
+
+export interface MemoryDetail extends MemorySummary {
+  references: unknown;
+  attributes: Record<string, ConflictSide>;
+  metadata: unknown;
+  versions: MemoryVersionItem[];
+  conflicts: ConflictItem[];
+  mergedFrom: Array<{ id: string; subject: string }>;
+  mergedInto: { id: string; subject: string } | null;
+  timeline: MemoryTimeline | null;
+}
+
+export interface EntityMemory {
+  entityId: string;
+  state: {
+    entityType: string | null;
+    label: string | null;
+    status: string | null;
+    priority: string | null;
+    assignee: string | null;
+    currentState: Record<string, ConflictSide>;
+    memoryCount: number;
+    lastEventAt: string | null;
+  } | null;
+  memories: MemorySummary[];
+  timeline: MemoryTimeline;
+}
+
+export interface ChangeItem {
+  memoryId: string;
+  version: number;
+  changeType: string;
+  changeSummary: string | null;
+  subject: string | null;
+  memoryType: string | null;
+  entityId: string | null;
+  entityLabel: string | null;
+  at: string;
+}
+
+export interface ChangesResponse {
+  since: string;
+  until: string | null;
+  total: number;
+  byChangeType: Record<string, number>;
+  changes: ChangeItem[];
+}
+
+export interface ConflictList {
+  total: number;
+  countsByStatus: Record<string, number>;
+  conflicts: ConflictItem[];
+}
+
+export interface MemoryStats {
+  memoriesByType: Record<string, number>;
+  memoriesByStatus: Record<string, number>;
+  totalActive: number;
+  avgConfidence: number;
+  avgImportance: number;
+  memoriesCreated: number;
+  memoriesUpdated: number;
+  mergeCount: number;
+  conflictCount: Record<string, number>;
+  timelineGrowth: { timelines: number; events: number };
+  topScored: Array<{ id: string; subject: string; memoryType: string; composite: number }>;
+  processingStatus: {
+    success: boolean;
+    error: string | null;
+    processingMs: number | null;
+    stats: Record<string, number>;
+    at: string;
+    mode: string;
+  } | null;
+}
+
+export const memoryApi = {
+  list(
+    params: {
+      memoryType?: string;
+      status?: string;
+      source?: string;
+      entityId?: string;
+      search?: string;
+      sort?: 'score' | 'recent' | 'importance';
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ): Promise<MemoryList> {
+    return request(`/api/v1/memory${toQuery(params)}`);
+  },
+
+  get(id: string): Promise<MemoryDetail> {
+    return request(`/api/v1/memory/${id}`);
+  },
+
+  getEntity(entityId: string): Promise<EntityMemory> {
+    return request(`/api/v1/memory/entity/${entityId}`);
+  },
+
+  getTimeline(
+    entityId: string,
+    params: { type?: string; source?: string; limit?: number } = {},
+  ): Promise<MemoryTimeline> {
+    return request(`/api/v1/timeline/${entityId}${toQuery(params)}`);
+  },
+
+  getChanges(
+    params: {
+      since?: string;
+      until?: string;
+      entityId?: string;
+      memoryType?: string;
+      changeType?: string;
+      limit?: number;
+    } = {},
+  ): Promise<ChangesResponse> {
+    return request(`/api/v1/changes${toQuery(params)}`);
+  },
+
+  listConflicts(
+    params: { status?: string; entityId?: string; limit?: number } = {},
+  ): Promise<ConflictList> {
+    return request(`/api/v1/memory/conflicts${toQuery(params)}`);
+  },
+
+  resolveConflict(
+    id: string,
+    body: { choice: 'latest' | 'previous' | 'custom'; value?: unknown },
+  ): Promise<ConflictItem> {
+    return request(`/api/v1/memory/conflicts/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  getStats(): Promise<MemoryStats> {
+    return request('/api/v1/memory/stats');
+  },
+
+  rebuild(body: { documentId?: string; mode?: 'rebuild' | 'incremental' } = {}): Promise<{
+    organizationId: string;
+    workflowId: string;
+    runId: string;
+    mode: string;
+  }> {
+    return request('/api/v1/memory/rebuild', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+};

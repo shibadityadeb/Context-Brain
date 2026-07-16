@@ -62,8 +62,8 @@ model Organization {
   knowledgeSources KnowledgeSource[]
   documents        Document[]
 
-  connectors           Connector[]
-  connectorLinks       OrganizationConnector[]
+  connectors     Connector[]
+  connectorLinks OrganizationConnector[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -152,7 +152,7 @@ model Session {
 model APIKey {
   id String @id @default(uuid()) @db.Uuid
 
-  name String
+  name       String
   // First characters of the key, shown in UIs for identification.
   prefix     String    @unique
   keyHash    String    @unique
@@ -184,9 +184,9 @@ model AuditLog {
   ipAddress  String?
   userAgent  String?
 
-  actorId        String? @db.Uuid
-  actor          User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  organizationId String? @db.Uuid
+  actorId        String?       @db.Uuid
+  actor          User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  organizationId String?       @db.Uuid
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   createdAt DateTime  @default(now())
@@ -245,7 +245,7 @@ model Folder {
   id   String @id @default(uuid()) @db.Uuid
   name String
 
-  parentId String? @db.Uuid
+  parentId String?  @db.Uuid
   parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Folder[] @relation("FolderTree")
 
@@ -268,9 +268,9 @@ model Folder {
 }
 
 model Tag {
-  id   String @id @default(uuid()) @db.Uuid
-  name String
-  slug String
+  id    String  @id @default(uuid()) @db.Uuid
+  name  String
+  slug  String
   color String?
 
   organizationId String       @db.Uuid
@@ -289,9 +289,9 @@ model Tag {
 }
 
 model KnowledgeSource {
-  id   String              @id @default(uuid()) @db.Uuid
-  name String
-  type KnowledgeSourceType @default(UPLOAD)
+  id     String              @id @default(uuid()) @db.Uuid
+  name   String
+  type   KnowledgeSourceType @default(UPLOAD)
   // Source-specific configuration (e.g. integration credentials pointer).
   config Json?
 
@@ -327,12 +327,12 @@ model Document {
   language      String?
   // Extracted metadata: author, keywords, headings, sections, tables,
   // creationDate — schema-free so parsers can evolve.
-  metadata Json?
+  metadata      Json?
 
   currentVersion Int @default(1)
 
-  folderId String? @db.Uuid
-  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId String?          @db.Uuid
+  folder   Folder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
   sourceId String?          @db.Uuid
   source   KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
 
@@ -343,14 +343,14 @@ model Document {
   ownerId        String?      @db.Uuid
   owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
-  versions       DocumentVersion[]
-  chunks         Chunk[]
-  embeddings     EmbeddingReference[]
-  tags           DocumentTag[]
-  processingJobs ProcessingJob[]
+  versions          DocumentVersion[]
+  chunks            Chunk[]
+  embeddings        EmbeddingReference[]
+  tags              DocumentTag[]
+  processingJobs    ProcessingJob[]
   externalResources ExternalResource[]
-  knowledgeObjects  KnowledgeObject[] @relation("KnowledgeObjectSource")
-  entityMentions    EntityMention[]   @relation("KnowledgeMentions")
+  knowledgeObjects  KnowledgeObject[]    @relation("KnowledgeObjectSource")
+  entityMentions    EntityMention[]      @relation("KnowledgeMentions")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -374,7 +374,7 @@ model DocumentVersion {
   fileSizeBytes Int
   checksum      String?
   // Parser output snapshot for this version (headings, sections, stats).
-  metadata Json?
+  metadata      Json?
 
   organizationId String @db.Uuid
 
@@ -405,16 +405,16 @@ model Chunk {
   id    String @id @default(uuid()) @db.Uuid
   index Int
 
-  content    String @db.Text
-  tokenCount Int
-  heading    String?
-  section    String?
-  startOffset Int @default(0)
-  endOffset   Int @default(0)
+  content     String  @db.Text
+  tokenCount  Int
+  heading     String?
+  section     String?
+  startOffset Int     @default(0)
+  endOffset   Int     @default(0)
   metadata    Json?
 
-  documentId String   @db.Uuid
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String          @db.Uuid
+  document   Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
   versionId  String          @db.Uuid
   version    DocumentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
@@ -435,8 +435,8 @@ model Chunk {
 model EmbeddingReference {
   id String @id @default(uuid()) @db.Uuid
 
-  chunkId String @unique @db.Uuid
-  chunk   Chunk  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  chunkId    String   @unique @db.Uuid
+  chunk      Chunk    @relation(fields: [chunkId], references: [id], onDelete: Cascade)
   documentId String   @db.Uuid
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -461,9 +461,9 @@ model EmbeddingReference {
 model ProcessingJob {
   id String @id @default(uuid()) @db.Uuid
 
-  documentId String   @db.Uuid
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  documentVersion Int @default(1)
+  documentId      String   @db.Uuid
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentVersion Int      @default(1)
 
   // Temporal linkage for observability.
   workflowId String
@@ -474,7 +474,7 @@ model ProcessingJob {
   attempt Int              @default(1)
   error   String?
   // Append-only stage log: [{stage, message, at}]
-  logs Json[]
+  logs    Json[]
 
   chunkCount     Int?
   embeddingCount Int?
@@ -605,8 +605,8 @@ model Connector {
   name     String
   status   ConnectorStatus   @default(PENDING)
   // Provider-specific, non-secret configuration (sync intervals, filters).
-  config Json?
-  error  String?
+  config   Json?
+  error    String?
 
   lastSyncAt DateTime?
   nextSyncAt DateTime?
@@ -641,10 +641,10 @@ model OrganizationConnector {
   connectorId    String       @db.Uuid
   connector      Connector    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  isEnabled Boolean @default(true)
+  isEnabled Boolean         @default(true)
   // Per-organization overrides (which services to sync, schedules…).
-  settings Json?
-  status   ConnectorStatus @default(PENDING)
+  settings  Json?
+  status    ConnectorStatus @default(PENDING)
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -686,8 +686,8 @@ model OAuthCredential {
   connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   // Account the grant belongs to (the connecting admin).
-  userEmail String?
-  scopes    String[]
+  userEmail             String?
+  scopes                String[]
   // AES-256-GCM encrypted refresh token — never stored in plaintext,
   // never returned by any API.
   encryptedRefreshToken String
@@ -713,8 +713,8 @@ model SyncJob {
   connectorId String    @db.Uuid
   connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  type   SyncJobType
-  status SyncJobStatus @default(PENDING)
+  type    SyncJobType
+  status  SyncJobStatus @default(PENDING)
   // Which provider service this job covers: drive, docs, gmail, calendar…
   service String?
 
@@ -748,13 +748,13 @@ model SyncCursor {
   connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
   // drive | gmail | calendar | permissions …
-  service String
+  service       String
   // Narrower scope inside a service (a shared drive id, a calendar id).
-  resourceScope String @default("")
+  resourceScope String          @default("")
   // Opaque provider cursor: Drive changes pageToken, Gmail historyId,
   // Calendar syncToken.
-  cursor String
-  status ConnectorStatus @default(CONNECTED)
+  cursor        String
+  status        ConnectorStatus @default(CONNECTED)
 
   organizationId String @db.Uuid
 
@@ -776,20 +776,20 @@ model ExternalResource {
   type       ExternalResourceType
   status     ExternalResourceStatus @default(ACTIVE)
 
-  title      String?
-  mimeType   String?
-  url        String?
-  ownerEmail String?
+  title             String?
+  mimeType          String?
+  url               String?
+  ownerEmail        String?
   // Provider-side hierarchy (Drive parent folder id, Gmail thread id…).
-  parentExternalId String?
-  driveId          String?
-  sizeBytes        BigInt?
-  checksum         String?
-  version          String?
+  parentExternalId  String?
+  driveId           String?
+  sizeBytes         BigInt?
+  checksum          String?
+  version           String?
   externalCreatedAt DateTime?
   externalUpdatedAt DateTime?
   // Service-specific extras (labels, attendees, worksheet names, …).
-  metadata Json?
+  metadata          Json?
 
   organizationId String @db.Uuid
 
@@ -797,8 +797,8 @@ model ExternalResource {
   documentId String?   @db.Uuid
   document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
-  permissions ResourcePermission[]
-  versions    ResourceVersion[]
+  permissions  ResourcePermission[]
+  versions     ResourceVersion[]
   changeEvents ExternalChange[]
 
   createdAt DateTime  @default(now())
@@ -815,8 +815,8 @@ model ExternalResource {
 model ExternalChange {
   id String @id @default(uuid()) @db.Uuid
 
-  connectorId String    @db.Uuid
-  connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  connectorId String            @db.Uuid
+  connector   Connector         @relation(fields: [connectorId], references: [id], onDelete: Cascade)
   resourceId  String?           @db.Uuid
   resource    ExternalResource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
 
@@ -824,7 +824,7 @@ model ExternalChange {
   service    String
   changeType ChangeType
   // Raw provider change payload for replay/debugging.
-  payload Json?
+  payload    Json?
 
   occurredAt  DateTime  @default(now())
   processedAt DateTime?
@@ -849,10 +849,10 @@ model ResourcePermission {
   externalPermissionId String?
   principalType        PrincipalType
   // Email of the user/group; null for DOMAIN/ANYONE grants.
-  principalEmail String?
-  domain         String?
-  role           PermissionRole
-  status         ExternalResourceStatus @default(ACTIVE)
+  principalEmail       String?
+  domain               String?
+  role                 PermissionRole
+  status               ExternalResourceStatus @default(ACTIVE)
 
   organizationId String @db.Uuid
 
@@ -871,13 +871,13 @@ model ResourceVersion {
   resourceId String           @db.Uuid
   resource   ExternalResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 
-  version          String
-  checksum         String?
-  sizeBytes        BigInt?
-  modifiedByEmail  String?
+  version            String
+  checksum           String?
+  sizeBytes          BigInt?
+  modifiedByEmail    String?
   externalModifiedAt DateTime?
-  metadata         Json?
-  status           ExternalResourceStatus @default(ACTIVE)
+  metadata           Json?
+  status             ExternalResourceStatus @default(ACTIVE)
 
   organizationId String @db.Uuid
 
@@ -895,7 +895,7 @@ model ConnectorLog {
   connectorId String    @db.Uuid
   connector   Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
 
-  level ConnectorLogLevel @default(INFO)
+  level   ConnectorLogLevel @default(INFO)
   // Namespaced event name: oauth.connected, sync.drive.completed, …
   event   String
   message String
@@ -1017,12 +1017,12 @@ enum TimelineEventType {
 model KnowledgeObject {
   id String @id @default(uuid()) @db.Uuid
 
-  type   KnowledgeObjectType
-  title  String
+  type            KnowledgeObjectType
+  title           String
   // Lower-cased, whitespace/punctuation-normalized title for dedup lookups.
   normalizedTitle String
-  summary     String? @db.Text
-  description String? @db.Text
+  summary         String?             @db.Text
+  description     String?             @db.Text
 
   status     KnowledgeObjectStatus @default(UNKNOWN)
   priority   KnowledgePriority     @default(NONE)
@@ -1104,8 +1104,8 @@ model EntityAlias {
   alias           String
   normalizedAlias String
   // Where the alias came from: "extraction", "merge", "manual".
-  source     String @default("extraction")
-  confidence Float  @default(1)
+  source          String @default("extraction")
+  confidence      Float  @default(1)
 
   organizationId String @db.Uuid
 
@@ -1145,13 +1145,13 @@ model TimelineEvent {
   objectId String          @db.Uuid
   object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 
-  type  TimelineEventType
-  title String?
+  type       TimelineEventType
+  title      String?
   // Event-specific details (old/new status, merged object id, …).
   payload    Json?
-  documentId String? @db.Uuid
+  documentId String?           @db.Uuid
   actor      String?
-  occurredAt DateTime @default(now())
+  occurredAt DateTime          @default(now())
 
   organizationId String @db.Uuid
 
@@ -1218,7 +1218,7 @@ model KnowledgeVersion {
   objectId String          @db.Uuid
   object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 
-  version Int
+  version    Int
   // Full snapshot of the object at this version.
   snapshot   Json
   // "created" | "updated" | "merged" | "restored" | "status_changed"
@@ -1232,4 +1232,405 @@ model KnowledgeVersion {
   @@unique([objectId, version])
   @@index([organizationId])
   @@map("knowledge_versions")
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 3 — Company Memory Engine
+// Persistent, evolving organizational memory over time. Memory is the
+// reconciled state of company knowledge — not chat history. Every new
+// document, email, calendar event or knowledge change becomes a
+// MemoryEvent that enriches an existing Memory instead of duplicating
+// it, builds per-entity timelines, records conflicts across sources
+// and maintains retrieval scores. Fully additive: like Phase 2, these
+// tables carry `organizationId` and `entityId` as plain scalars
+// (entityId → KnowledgeObject by convention) so no earlier model
+// changes. Memory is the single source of truth for org history.
+// ════════════════════════════════════════════════════════════════
+
+enum MemoryType {
+  SEMANTIC // Stable company facts
+  EPISODIC // Events over time
+  PROCEDURAL // Company processes
+  WORKING // Recent context
+  ORGANIZATIONAL // Cross-resource understanding
+}
+
+enum MemoryStatus {
+  ACTIVE
+  SUPERSEDED
+  MERGED
+  ARCHIVED
+  EXPIRED
+}
+
+// Where a memory / event / observation originated.
+enum MemorySource {
+  DOCUMENT
+  EMAIL
+  CALENDAR
+  MEETING
+  KNOWLEDGE
+  GIT
+  SLACK
+  MANUAL
+  SYSTEM
+}
+
+// The kinds of events that create or enrich memory. `Future` sources are
+// declared now so connectors can emit them without a schema change.
+enum MemoryEventType {
+  DOCUMENT_IMPORTED
+  DOCUMENT_UPDATED
+  EMAIL_RECEIVED
+  CALENDAR_UPDATED
+  KNOWLEDGE_OBJECT_CREATED
+  KNOWLEDGE_OBJECT_UPDATED
+  KNOWLEDGE_RELATIONSHIP_CHANGED
+  MEETING_TRANSCRIPT
+  GIT_COMMIT
+  PULL_REQUEST
+  SLACK_MESSAGE
+}
+
+enum MemoryEventStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  SKIPPED
+}
+
+// Per-entity timeline event categories (a superset of the observed
+// lifecycle: created → assigned → discussed → decided → resolved → released).
+enum EntityTimelineEventType {
+  CREATED
+  ASSIGNED
+  MENTIONED
+  DISCUSSED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  DECISION_MADE
+  UPDATED
+  RELATIONSHIP_CHANGED
+  RESOLVED
+  RELEASED
+  MERGED
+  CONFLICT_DETECTED
+  OTHER
+}
+
+enum ConflictStatus {
+  OPEN
+  AUTO_RESOLVED
+  MANUALLY_RESOLVED
+  DISMISSED
+}
+
+// How a conflicting attribute was (or should be) reconciled.
+enum ConflictResolution {
+  LATEST_WINS
+  HIGHEST_CONFIDENCE
+  SOURCE_PRIORITY
+  MANUAL
+}
+
+// The evolving unit of organizational memory. Reconciliation guarantees at
+// most one ACTIVE memory per (organizationId, memoryType, dedupeKey); new
+// evidence bumps `version`, updates `summary`/`confidence` and appends a
+// MemoryVersion + timeline event rather than inserting a duplicate.
+model Memory {
+  id String @id @default(uuid()) @db.Uuid
+
+  memoryType MemoryType
+
+  // Subject of the memory ("Payment timeout in booking flow"); normalized
+  // form participates in the dedupe key.
+  subject           String
+  normalizedSubject String
+  summary           String @db.Text
+  // Deterministic reconciliation key: entityId (if any) else the
+  // normalized subject, namespaced by memoryType. Unique among ACTIVE
+  // memories so merges converge instead of duplicating.
+  dedupeKey         String
+
+  // The knowledge entity this memory is about (KnowledgeObject.id by
+  // convention — plain scalar, no FK, mirroring Phase 2 child tables).
+  entityId    String? @db.Uuid
+  entityType  String?
+  entityLabel String?
+
+  confidence Float @default(0.5)
+  importance Float @default(0.5)
+
+  source  MemorySource
+  status  MemoryStatus @default(ACTIVE)
+  version Int          @default(1)
+
+  // Temporal validity — memory is state over time.
+  validFrom DateTime  @default(now())
+  validTo   DateTime?
+
+  // Provenance list: [{ kind, source, documentId, eventId, memoryId, label, at }].
+  references Json?
+  // Reconciled attribute values with provenance: { field: { value, source,
+  // confidence, at } } — the current state this memory asserts.
+  attributes Json?
+  metadata   Json?
+
+  // Reconciliation: a memory merged into another survivor.
+  mergedIntoId String?  @db.Uuid
+  mergedInto   Memory?  @relation("MemoryMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom   Memory[] @relation("MemoryMerge")
+
+  organizationId String @db.Uuid
+
+  versions  MemoryVersion[]
+  events    MemoryEvent[]
+  conflicts ConflictRecord[]
+  score     MemoryScore?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, memoryType, dedupeKey])
+  @@index([organizationId, memoryType])
+  @@index([organizationId, entityId])
+  @@index([organizationId, status])
+  @@index([organizationId, updatedAt])
+  @@map("memories")
+}
+
+// Immutable snapshot of a memory at each version — the audit trail behind
+// "what changed since last week" and "how did this evolve".
+model MemoryVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  memoryId String @db.Uuid
+  memory   Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  version       Int
+  // Full memory state at this version.
+  snapshot      Json
+  // "created" | "updated" | "reconciled" | "merged" | "conflict" | "rescored"
+  changeType    String
+  // Short human diff, e.g. "confidence 0.6 → 0.8; status OPEN → RESOLVED".
+  changeSummary String?
+  changedBy     String?
+  // The event that produced this version, if any.
+  sourceEventId String? @db.Uuid
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@unique([memoryId, version])
+  @@index([organizationId, createdAt])
+  @@map("memory_versions")
+}
+
+// The inbound signal that drives memory. One row per observed change
+// (document imported, email received, knowledge object updated, …).
+// Processing is idempotent on (organizationId, dedupeHash).
+model MemoryEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  type   MemoryEventType
+  source MemorySource
+  status MemoryEventStatus @default(PENDING)
+
+  // Idempotency guard: hash of the semantic content of the event.
+  dedupeHash String
+
+  // Subject the event concerns; entityId resolved during processing.
+  entityId   String? @db.Uuid
+  entityHint String?
+  documentId String? @db.Uuid
+  externalId String?
+
+  // Full event payload (title, summary, actor, attribute changes, snippet…).
+  payload Json?
+
+  occurredAt DateTime @default(now())
+
+  // The memory this event was applied to (once processed).
+  memoryId String? @db.Uuid
+  memory   Memory? @relation(fields: [memoryId], references: [id], onDelete: SetNull)
+
+  // Temporal linkage for observability.
+  workflowId  String?
+  processedAt DateTime?
+  error       String?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, dedupeHash])
+  @@index([organizationId, status])
+  @@index([organizationId, occurredAt])
+  @@index([entityId])
+  @@map("memory_events")
+}
+
+// One timeline per entity — the automatically-built history container.
+model MemoryTimeline {
+  id String @id @default(uuid()) @db.Uuid
+
+  // KnowledgeObject.id (plain scalar) or a synthetic subject key.
+  entityId    String  @db.Uuid
+  entityType  String?
+  entityLabel String?
+  summary     String?
+
+  eventCount   Int       @default(0)
+  firstEventAt DateTime?
+  lastEventAt  DateTime?
+
+  organizationId String @db.Uuid
+
+  events MemoryTimelineEvent[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, entityId])
+  @@index([organizationId, lastEventAt])
+  @@map("memory_timelines")
+}
+
+// A single, ordered, queryable moment in an entity's life. Deduplicated on
+// (timelineId, dedupeHash) so replays never double-count.
+model MemoryTimelineEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  timelineId String         @db.Uuid
+  timeline   MemoryTimeline @relation(fields: [timelineId], references: [id], onDelete: Cascade)
+
+  entityId    String                  @db.Uuid
+  type        EntityTimelineEventType
+  title       String
+  description String?                 @db.Text
+  source      MemorySource
+
+  dedupeHash String
+
+  // Cross-links back to the memory / event / document that produced it.
+  memoryId   String? @db.Uuid
+  eventId    String? @db.Uuid
+  documentId String? @db.Uuid
+  actor      String?
+  confidence Float   @default(0.5)
+  payload    Json?
+
+  occurredAt DateTime @default(now())
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@unique([timelineId, dedupeHash])
+  @@index([timelineId, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@index([entityId, occurredAt])
+  @@map("memory_timeline_events")
+}
+
+// Recorded disagreement between sources about one attribute of a memory.
+// Keeps latest + previous values, confidence and provenance for manual
+// review; auto-resolution stamps a resolution strategy.
+model ConflictRecord {
+  id String @id @default(uuid()) @db.Uuid
+
+  memoryId String  @db.Uuid
+  memory   Memory  @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  entityId String? @db.Uuid
+
+  // The disagreeing attribute, e.g. "status", "assignee", "priority".
+  attribute String
+
+  latestValue        Json
+  previousValue      Json
+  latestSource       MemorySource
+  previousSource     MemorySource
+  latestConfidence   Float        @default(0.5)
+  previousConfidence Float        @default(0.5)
+  latestAt           DateTime
+  previousAt         DateTime
+
+  status        ConflictStatus      @default(OPEN)
+  resolution    ConflictResolution?
+  resolvedValue Json?
+  resolvedBy    String?
+  resolvedAt    DateTime?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, status])
+  @@index([memoryId])
+  @@map("conflict_records")
+}
+
+// The reconciled, denormalized "current state" of an entity across all
+// sources — the fast-path answer to "what is true about X right now".
+model EntityState {
+  id String @id @default(uuid()) @db.Uuid
+
+  entityId   String  @db.Uuid
+  entityType String?
+  label      String?
+
+  // { field: { value, source, confidence, at } } — winning values.
+  currentState Json
+  status       String?
+  priority     String?
+  assignee     String?
+
+  lastEventAt DateTime?
+  memoryCount Int       @default(0)
+  version     Int       @default(1)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, entityId])
+  @@index([organizationId, updatedAt])
+  @@map("entity_states")
+}
+
+// Retrieval scores for a memory. Recomputed by MemoryScoringWorkflow;
+// `composite` is the single number rankers sort on.
+model MemoryScore {
+  id String @id @default(uuid()) @db.Uuid
+
+  memoryId String @unique @db.Uuid
+  memory   Memory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  importance Float @default(0)
+  freshness  Float @default(0)
+  confidence Float @default(0)
+  recency    Float @default(0)
+  frequency  Float @default(0)
+  composite  Float @default(0)
+
+  // Raw frequency: how many events have reinforced this memory.
+  frequencyCount Int      @default(1)
+  computedAt     DateTime @default(now())
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, composite])
+  @@map("memory_scores")
 }

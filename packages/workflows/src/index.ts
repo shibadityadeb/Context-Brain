@@ -24,6 +24,16 @@ export {
 } from './workflows/knowledge-engine.workflow.js';
 
 export {
+  memoryUpdateWorkflow,
+  memoryMergeWorkflow,
+  memoryTimelineWorkflow,
+  conflictResolutionWorkflow,
+  memoryScoringWorkflow,
+  memoryCleanupWorkflow,
+  type MemoryWorkflowResult,
+} from './workflows/memory-engine.workflow.js';
+
+export {
   workspaceInitialSyncWorkflow,
   incrementalSyncWorkflow,
   driveSyncWorkflow,
@@ -57,9 +67,11 @@ export {
   getIngestionProgressQuery,
   getSyncProgressQuery,
   getKnowledgeProgressQuery,
+  getMemoryProgressQuery,
   type IngestionProgress,
   type ConnectorSyncProgress,
   type KnowledgeProgress,
+  type MemoryProgress,
 } from './definitions.js';
 export { TASK_QUEUES, WORKFLOW_TYPES, type TaskQueue, type WorkflowType } from './constants.js';
 export { DEFAULT_RETRY_POLICY, QUICK_RETRY_POLICY } from './retry-policies.js';

@@ -7,6 +7,7 @@ import {
   createKnowledgeActivities,
   createKnowledgeActivityContext,
   createKnowledgeEngineActivities,
+  createMemoryEngineActivities,
 } from '@company-brain/activities';
 import { createLLMProvider } from '@company-brain/knowledge-engine';
 import { config } from './config.js';
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
       ...createActivities(activityContext),
       ...createKnowledgeActivities(activityContext),
       ...createKnowledgeEngineActivities({ ...activityContext, llm }),
+      ...createMemoryEngineActivities({ ...activityContext, tuning: config.memory }),
     },
     // In-flight activities get this long to finish on shutdown before
     // being cancelled (their tasks are then retried by another worker).

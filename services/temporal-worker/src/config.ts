@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 import type { ActivityConfig, KnowledgeConfig } from '@company-brain/activities';
+import { resolveMemoryTuning, type MemoryTuning } from '@company-brain/memory-engine';
 
 loadDotenv({ path: resolve(process.cwd(), '.env') });
 loadDotenv({ path: resolve(process.cwd(), '../../.env') });
@@ -50,6 +51,26 @@ const envSchema = z.object({
   EXTRACTION_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   LOCAL_LLM_URL: z.string().optional(),
+
+  // Phase 3 — Company Memory Engine tuning (all optional; documented
+  // defaults live in @company-brain/memory-engine). Nothing operational is
+  // frozen in code — every knob is overridable here.
+  MEMORY_FRESHNESS_HALFLIFE_DAYS: z.coerce.number().positive().optional(),
+  MEMORY_RECENCY_HALFLIFE_DAYS: z.coerce.number().positive().optional(),
+  MEMORY_FREQUENCY_SATURATION: z.coerce.number().positive().optional(),
+  MEMORY_CONFLICT_STRATEGY: z
+    .enum(['LATEST_WINS', 'HIGHEST_CONFIDENCE', 'SOURCE_PRIORITY', 'MANUAL'])
+    .optional(),
+  MEMORY_CONFLICT_CONFIDENCE_DELTA: z.coerce.number().min(0).max(1).optional(),
+  MEMORY_CONFLICT_TRUST_DELTA: z.coerce.number().min(0).max(1).optional(),
+  MEMORY_DEFAULT_ATTRIBUTE_CONFIDENCE: z.coerce.number().min(0).max(1).optional(),
+  MEMORY_WORKING_TTL_DAYS: z.coerce.number().positive().optional(),
+  MEMORY_SUPERSEDED_TTL_DAYS: z.coerce.number().positive().optional(),
+  MEMORY_MAX_OBJECTS_PER_RUN: z.coerce.number().int().positive().optional(),
+  MEMORY_MAX_EVENTS_PER_APPLY: z.coerce.number().int().positive().optional(),
+  MEMORY_MAX_MENTIONS_PER_OBJECT: z.coerce.number().int().positive().optional(),
+  // JSON object of score weights, e.g. {"importance":0.3,"confidence":0.2,...}
+  MEMORY_SCORE_WEIGHTS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -92,6 +113,33 @@ const providerKeys = {
   voyage: env.VOYAGE_API_KEY,
 } as const;
 
+function parseScoreWeights(raw?: string): MemoryTuning['scoreWeights'] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Partial<MemoryTuning['scoreWeights']>;
+    return parsed as MemoryTuning['scoreWeights'];
+  } catch {
+    throw new Error('MEMORY_SCORE_WEIGHTS must be valid JSON');
+  }
+}
+
+// Documented defaults live in the pure package; env only overrides.
+const memoryTuning: MemoryTuning = resolveMemoryTuning({
+  freshnessHalfLifeDays: env.MEMORY_FRESHNESS_HALFLIFE_DAYS,
+  recencyHalfLifeDays: env.MEMORY_RECENCY_HALFLIFE_DAYS,
+  frequencySaturation: env.MEMORY_FREQUENCY_SATURATION,
+  defaultConflictStrategy: env.MEMORY_CONFLICT_STRATEGY,
+  conflictConfidenceDelta: env.MEMORY_CONFLICT_CONFIDENCE_DELTA,
+  conflictTrustDelta: env.MEMORY_CONFLICT_TRUST_DELTA,
+  defaultAttributeConfidence: env.MEMORY_DEFAULT_ATTRIBUTE_CONFIDENCE,
+  workingMemoryTtlDays: env.MEMORY_WORKING_TTL_DAYS,
+  supersededTtlDays: env.MEMORY_SUPERSEDED_TTL_DAYS,
+  maxObjectsPerRun: env.MEMORY_MAX_OBJECTS_PER_RUN,
+  maxEventsPerApply: env.MEMORY_MAX_EVENTS_PER_APPLY,
+  maxMentionsPerObject: env.MEMORY_MAX_MENTIONS_PER_OBJECT,
+  scoreWeights: parseScoreWeights(env.MEMORY_SCORE_WEIGHTS),
+});
+
 const knowledgeConfig: KnowledgeConfig = {
   embedding: {
     provider: env.EMBEDDINGS_PROVIDER,
@@ -125,6 +173,7 @@ export const config = {
   },
   activities: activityConfig,
   knowledge: knowledgeConfig,
+  memory: memoryTuning,
   extraction: {
     provider: env.EXTRACTION_PROVIDER,
     model: env.EXTRACTION_MODEL,

@@ -35,3 +35,17 @@ export type {
   KnowledgeEmbedStats,
   FinalizeKnowledgeInput,
 } from './knowledge-engine.activities.js';
+export { createMemoryEngineActivities } from './memory-engine.activities.js';
+export type { MemoryEngineActivityContext } from './memory.context.js';
+export type {
+  MemoryEngineActivities,
+  MemoryRunInput,
+  CollectStats,
+  ApplyStats,
+  MergeStats,
+  TimelineBuildStats,
+  ConflictStats,
+  ScoreStats,
+  CleanupStats,
+  FinalizeMemoryInput,
+} from './memory-engine.activities.js';

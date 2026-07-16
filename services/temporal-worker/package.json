@@ -14,6 +14,7 @@
   "dependencies": {
     "@company-brain/activities": "workspace:*",
     "@company-brain/knowledge-engine": "workspace:*",
+    "@company-brain/memory-engine": "workspace:*",
     "@company-brain/workflows": "workspace:*",
     "@temporalio/worker": "^1.20.2",
     "dotenv": "^16.5.0",

@@ -39,6 +39,22 @@ export interface KnowledgeProgress {
 }
 export const getKnowledgeProgressQuery = defineQuery<KnowledgeProgress>('getKnowledgeProgress');
 
+/** memoryUpdateWorkflow — live pipeline progress. */
+export interface MemoryProgress {
+  organizationId: string;
+  stage: 'COLLECT' | 'APPLY' | 'MERGE' | 'TIMELINE' | 'CONFLICT' | 'SCORE' | 'COMPLETE';
+  eventsCollected: number;
+  eventsProcessed: number;
+  memoriesCreated: number;
+  memoriesUpdated: number;
+  merged: number;
+  conflicts: number;
+  timelineEvents: number;
+  scored: number;
+  error: string | null;
+}
+export const getMemoryProgressQuery = defineQuery<MemoryProgress>('getMemoryProgress');
+
 /** connector sync workflows — live page/resource counters. */
 export interface ConnectorSyncProgress {
   connectorId: string;
