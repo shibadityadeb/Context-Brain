@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     await api.logout();
     setUser(null);
-    router.replace('/login');
+    router.replace('/');
   }, [router]);
 
   return (

@@ -5,21 +5,28 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUp, Boxes, FileText, Info, Sparkles } from 'lucide-react';
-import {
-  knowledgeGraphApi,
-  memoryApi,
-  type EntitySearchResult,
-  type MemorySummary,
-} from '@/lib/api';
-import { Dot, Thinking } from '@/components/ui/primitives';
+import { askApi, type AskSource } from '@/lib/api';
+import { Dot } from '@/components/ui/primitives';
+import { NeuralThinking } from '@/components/brain/neural-thinking';
 import { entityColor, entityLabel } from '@/lib/entities';
 
 interface Turn {
   id: string;
   q: string;
   loading: boolean;
-  entities: EntitySearchResult[];
-  memories: MemorySummary[];
+  answer: string;
+  sources: AskSource[];
+}
+
+const SUGGESTIONS = [
+  'What is going on with the booking payment issue?',
+  'What changed last week?',
+  'Show me the open bugs',
+  'Who works on the retreat capacity feature?',
+];
+
+function sourceHref(s: AskSource): string {
+  return s.kind === 'memory' ? `/memory/${s.id}` : `/brain/entity/${s.id}`;
 }
 
 function AskInner() {
@@ -31,18 +38,36 @@ function AskInner() {
 
   async function run(question: string) {
     const id = crypto.randomUUID();
-    setTurns((t) => [...t, { id, q: question, loading: true, entities: [], memories: [] }]);
-    const [k, m] = await Promise.all([
-      knowledgeGraphApi.searchEntities({ q: question, limit: 6 }).catch(() => null),
-      memoryApi.list({ search: question, pageSize: 4, sort: 'score' }).catch(() => null),
-    ]);
-    setTurns((t) =>
-      t.map((turn) =>
-        turn.id === id
-          ? { ...turn, loading: false, entities: k?.results ?? [], memories: m?.memories ?? [] }
-          : turn,
-      ),
-    );
+    // Short rolling history for follow-ups.
+    const history = turns
+      .flatMap((t) => [
+        { role: 'user' as const, content: t.q },
+        { role: 'assistant' as const, content: t.answer },
+      ])
+      .filter((h) => h.content)
+      .slice(-6);
+
+    setTurns((t) => [...t, { id, q: question, loading: true, answer: '', sources: [] }]);
+    try {
+      const res = await askApi.ask({ question, history });
+      setTurns((t) =>
+        t.map((x) =>
+          x.id === id ? { ...x, loading: false, answer: res.answer, sources: res.sources } : x,
+        ),
+      );
+    } catch {
+      setTurns((t) =>
+        t.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                loading: false,
+                answer: 'I had trouble reaching the Company Brain just now. Please try again.',
+              }
+            : x,
+        ),
+      );
+    }
   }
 
   useEffect(() => {
@@ -65,7 +90,7 @@ function AskInner() {
   }
 
   const latest = turns[turns.length - 1];
-  const context = latest ? [...latest.entities] : [];
+  const context = latest?.sources ?? [];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
@@ -77,21 +102,19 @@ function AskInner() {
             </span>
             <h1 className="text-2xl font-semibold tracking-tight">Ask your Company Brain</h1>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              Ask about any person, project, decision or document. Every answer is grounded in your
-              company&apos;s real, remembered knowledge.
+              Your company&apos;s librarian. Ask anything — it reads across every source and answers
+              in plain language, with the receipts.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {['Who owns the booking flow?', 'What changed last week?', 'Show open bugs'].map(
-                (s) => (
-                  <button
-                    key={s}
-                    onClick={() => void run(s)}
-                    className="rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-ai/30 hover:text-foreground"
-                  >
-                    {s}
-                  </button>
-                ),
-              )}
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => void run(s)}
+                  className="rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-ai/40 hover:text-foreground"
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           </div>
         ) : (
@@ -109,73 +132,45 @@ function AskInner() {
                   </span>
                   <div className="min-w-0 flex-1">
                     {turn.loading ? (
-                      <Thinking label="Searching your company's memory" />
-                    ) : turn.entities.length === 0 && turn.memories.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        I couldn&apos;t find anything about that yet. Try another phrasing, or
-                        upload the relevant document.
-                      </p>
+                      <NeuralThinking label="Reading across your company…" />
                     ) : (
                       <div className="space-y-3">
-                        <p className="text-sm text-muted-foreground">
-                          Here&apos;s what your Company Brain remembers:
-                        </p>
-                        <motion.div
-                          initial="hidden"
-                          animate="show"
-                          variants={{ show: { transition: { staggerChildren: 0.05 } } }}
-                          className="grid gap-2"
-                        >
-                          {turn.entities.map((e) => (
-                            <motion.div
-                              key={e.id}
-                              variants={{
-                                hidden: { opacity: 0, y: 6 },
-                                show: { opacity: 1, y: 0 },
-                              }}
+                        <div className="space-y-2.5 text-[15px] leading-relaxed text-foreground/90">
+                          {turn.answer.split(/\n{2,}/).map((para, i) => (
+                            <motion.p
+                              key={i}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: i * 0.12 }}
                             >
-                              <Link
-                                href={`/brain/entity/${e.id}`}
-                                className="flex items-start gap-2.5 rounded-lg border bg-card p-3 transition-colors hover:bg-accent"
-                              >
-                                <Dot color={entityColor(e.type)} className="mt-1.5" />
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{e.title}</p>
-                                  {e.summary && (
-                                    <p className="line-clamp-1 text-xs text-muted-foreground">
-                                      {e.summary}
-                                    </p>
+                              {para}
+                            </motion.p>
+                          ))}
+                        </div>
+
+                        {turn.sources.length > 0 && (
+                          <div>
+                            <p className="mb-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
+                              Sources
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {turn.sources.map((s) => (
+                                <Link
+                                  key={`${s.kind}-${s.id}`}
+                                  href={sourceHref(s)}
+                                  className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-ai/40 hover:text-foreground"
+                                >
+                                  {s.kind === 'memory' ? (
+                                    <Boxes className="h-3 w-3 text-ai" />
+                                  ) : (
+                                    <Dot color={entityColor(s.type)} />
                                   )}
-                                </div>
-                                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
-                                  {entityLabel(e.type)}
-                                </span>
-                              </Link>
-                            </motion.div>
-                          ))}
-                          {turn.memories.map((m) => (
-                            <motion.div
-                              key={m.id}
-                              variants={{
-                                hidden: { opacity: 0, y: 6 },
-                                show: { opacity: 1, y: 0 },
-                              }}
-                            >
-                              <Link
-                                href={`/memory/${m.id}`}
-                                className="flex items-start gap-2.5 rounded-lg border bg-card p-3 transition-colors hover:bg-accent"
-                              >
-                                <Boxes className="mt-0.5 h-4 w-4 shrink-0 text-ai" />
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{m.subject}</p>
-                                  <p className="line-clamp-1 text-xs text-muted-foreground">
-                                    {m.summary}
-                                  </p>
-                                </div>
-                              </Link>
-                            </motion.div>
-                          ))}
-                        </motion.div>
+                                  <span className="max-w-[180px] truncate">{s.title}</span>
+                                </Link>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -190,7 +185,7 @@ function AskInner() {
           className="sticky bottom-0 mt-4 bg-background/80 pt-2 backdrop-blur"
         >
           <div className="flex items-center gap-2 rounded-2xl border bg-card px-4 py-2 shadow-elevation-low focus-within:border-ai/40 focus-within:shadow-glow">
-            <Sparkles className="h-4.5 w-4.5 shrink-0 text-ai" />
+            <Sparkles className="h-5 w-5 shrink-0 text-ai" />
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -208,7 +203,7 @@ function AskInner() {
           </div>
           <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
             <Info className="h-3 w-3" />
-            Answers are grounded in your company&apos;s indexed knowledge.
+            Grounded in your company&apos;s indexed knowledge.
           </p>
         </form>
       </div>
@@ -219,7 +214,7 @@ function AskInner() {
           <h2 className="text-sm font-semibold">Context</h2>
           {context.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Referenced people, projects and documents will appear here as you ask.
+              The people, projects and documents behind each answer show up here.
             </p>
           ) : (
             <AnimatePresence mode="popLayout">
@@ -229,14 +224,21 @@ function AskInner() {
                 animate={{ opacity: 1 }}
                 className="space-y-2"
               >
-                {context.map((e) => (
+                {context.map((s) => (
                   <Link
-                    key={e.id}
-                    href={`/brain/entity/${e.id}`}
+                    key={`${s.kind}-${s.id}`}
+                    href={sourceHref(s)}
                     className="flex items-center gap-2.5 rounded-lg border bg-card p-2.5 text-sm transition-colors hover:bg-accent"
                   >
-                    <Dot color={entityColor(e.type)} />
-                    <span className="truncate">{e.title}</span>
+                    {s.kind === 'memory' ? (
+                      <Boxes className="h-4 w-4 shrink-0 text-ai" />
+                    ) : (
+                      <Dot color={entityColor(s.type)} />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {entityLabel(s.type)}
+                    </span>
                   </Link>
                 ))}
                 <Link

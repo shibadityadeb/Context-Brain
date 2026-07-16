@@ -6,7 +6,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUp, Sparkles, X } from 'lucide-react';
 import { cn } from '@company-brain/ui';
 import { knowledgeGraphApi, type EntitySearchResult } from '@/lib/api';
-import { Dot, Thinking } from '@/components/ui/primitives';
+import { Dot } from '@/components/ui/primitives';
+import { NeuralThinking } from '@/components/brain/neural-thinking';
 import { entityColor, entityLabel } from '@/lib/entities';
 import { useShell } from './shell-context';
 
@@ -64,7 +65,7 @@ export function AiDock() {
                   company&apos;s real knowledge.
                 </p>
               )}
-              {loading && <Thinking label="Searching your memory" />}
+              {loading && <NeuralThinking label="Searching your memory" />}
               <AnimatePresence>
                 {results?.map((r, i) => (
                   <motion.button

@@ -60,6 +60,15 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+
+  // Conversational answers (Ask Brain). Reuses the same provider/model as
+  // knowledge extraction so one key powers the whole brain.
+  EXTRACTION_PROVIDER: z.enum(['anthropic', 'openai', 'gemini', 'local', 'mock']).optional(),
+  EXTRACTION_MODEL: z.string().optional(),
+  ANSWER_PROVIDER: z.enum(['anthropic', 'openai', 'gemini', 'local', 'mock']).optional(),
+  ANSWER_MODEL: z.string().optional(),
+  LOCAL_LLM_URL: z.string().optional(),
 
   UPLOAD_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(50),
 

@@ -16,7 +16,9 @@ import {
 } from '@/lib/api';
 import { useAuth } from '@/components/auth-provider';
 import { EntityCard } from '@/components/cards/entity-card';
-import { SkeletonCard } from '@/components/ui/primitives';
+import { SkeletonCard, Kbd } from '@/components/ui/primitives';
+import { NeuralField } from '@/components/brain/neural-field';
+import { OrbitField } from '@/components/brain/orbit-field';
 import { changeTypeLabel } from '@/components/memory/util';
 import { fadeUp, staggerContainer } from '@/lib/motion';
 
@@ -80,40 +82,64 @@ export default function HomePage() {
 
   return (
     <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-10">
-      {/* Hero */}
-      <motion.section variants={fadeUp} className="relative overflow-hidden rounded-2xl border">
+      {/* Living command center */}
+      <motion.section
+        variants={fadeUp}
+        className="relative overflow-hidden rounded-2xl border bg-card/30"
+      >
+        <NeuralField
+          className="absolute inset-0 h-full w-full opacity-50"
+          variant="hero"
+          interactive
+        />
         <div
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(90% 140% at 100% 0%, hsl(var(--ai) / 0.14), transparent 60%)',
+              'radial-gradient(60% 80% at 50% 45%, hsl(var(--ai) / 0.16), transparent 70%)',
           }}
         />
-        <div className="relative p-6 sm:p-8">
-          <p className="text-sm text-muted-foreground">
-            {greeting()}, {firstName}.
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">
+        <OrbitField entities={recent ?? []} />
+
+        <div className="relative flex min-h-[440px] flex-col items-center justify-center px-6 py-16 text-center">
+          <motion.span
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="mb-5 inline-flex items-center gap-1.5 rounded-full border bg-background/60 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur"
+          >
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ai" />
+            {greeting()}, {firstName} · your company is thinking
+          </motion.span>
+
+          <h1 className="max-w-xl text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
             What do you want to <span className="text-gradient">know?</span>
           </h1>
-          <form onSubmit={ask} className="mt-5 flex max-w-2xl items-center gap-2">
-            <div className="flex flex-1 items-center gap-3 rounded-xl border bg-background px-4 py-3 shadow-elevation-low focus-within:border-ai/40 focus-within:shadow-glow">
-              <Sparkles className="h-4.5 w-4.5 shrink-0 text-ai" />
+
+          <form onSubmit={ask} className="mt-7 w-full max-w-xl">
+            <div className="group flex items-center gap-3 rounded-2xl border bg-background/80 px-4 py-3.5 shadow-elevation-mid backdrop-blur-xl transition-all focus-within:border-ai/50 focus-within:shadow-glow">
+              <Sparkles className="h-5 w-5 shrink-0 text-ai" />
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Ask your Company Brain anything…"
-                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                className="w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+                data-magnetic
               />
+              <button
+                type="submit"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-ai-gradient text-white transition-transform hover:scale-110 active:scale-95"
+                aria-label="Ask"
+                data-magnetic
+              >
+                <ArrowUpRight className="h-5 w-5" />
+              </button>
             </div>
-            <button
-              type="submit"
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ai-gradient text-white transition-transform hover:scale-105"
-              aria-label="Ask"
-            >
-              <ArrowUpRight className="h-5 w-5" />
-            </button>
           </form>
+
+          <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+            Press <Kbd>⌘</Kbd> <Kbd>K</Kbd> to search everything
+          </p>
         </div>
       </motion.section>
 
