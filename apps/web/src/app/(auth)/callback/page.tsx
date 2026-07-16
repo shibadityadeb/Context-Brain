@@ -15,7 +15,7 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     void (async () => {
       const signedIn = await completeSignIn();
-      router.replace(signedIn ? '/dashboard' : '/login?error=signin_failed');
+      router.replace(signedIn ? '/home' : '/login?error=signin_failed');
     })();
   }, [router]);
 
