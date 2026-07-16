@@ -214,6 +214,9 @@ importers:
       '@company-brain/knowledge-engine':
         specifier: workspace:*
         version: link:../knowledge-engine
+      '@company-brain/memory-engine':
+        specifier: workspace:*
+        version: link:../memory-engine
       '@prisma/client':
         specifier: ^6.19.3
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -400,6 +403,28 @@ importers:
         specifier: ^3.1.1
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0)
 
+  packages/memory-engine:
+    dependencies:
+      zod:
+        specifier: ^3.24.3
+        version: 3.25.76
+    devDependencies:
+      '@company-brain/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: ^22.14.1
+        version: 22.20.1
+      eslint:
+        specifier: ^9.24.0
+        version: 9.39.5(jiti@2.7.0)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.1
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0)
+
   packages/types:
     devDependencies:
       '@company-brain/config':
@@ -552,6 +577,9 @@ importers:
       '@company-brain/knowledge-engine':
         specifier: workspace:*
         version: link:../../packages/knowledge-engine
+      '@company-brain/memory-engine':
+        specifier: workspace:*
+        version: link:../../packages/memory-engine
       '@company-brain/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows

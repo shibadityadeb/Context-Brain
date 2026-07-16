@@ -3,8 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  AlertTriangle,
+  Boxes,
   Brain,
   Cable,
+  Clock,
   FileText,
   History,
   LayoutDashboard,
@@ -30,6 +33,9 @@ const NAV_ITEMS = [
   { href: '/brain', label: 'Brain', icon: Sparkles },
   { href: '/brain/graph', label: 'Graph', icon: Network },
   { href: '/brain/timeline', label: 'Timeline', icon: History },
+  { href: '/memory', label: 'Memory', icon: Boxes },
+  { href: '/memory/changes', label: 'Changes', icon: Clock },
+  { href: '/memory/conflicts', label: 'Conflicts', icon: AlertTriangle },
   { href: '/connectors', label: 'Connectors', icon: Cable },
   { href: '/profile', label: 'Profile', icon: User },
   { href: '/settings', label: 'Settings', icon: Settings },

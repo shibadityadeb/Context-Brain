@@ -15,6 +15,7 @@ import userRoutes from './modules/users/user.routes.js';
 import workflowRoutes from './modules/workflows/workflow.routes.js';
 import knowledgeRoutes from './modules/knowledge/knowledge.routes.js';
 import knowledgeGraphRoutes from './modules/knowledge-graph/knowledge-graph.routes.js';
+import memoryRoutes from './modules/memory/memory.routes.js';
 import connectorRoutes from './modules/connectors/connector.routes.js';
 
 /**
@@ -59,6 +60,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(workflowRoutes, { prefix: '/api/v1/workflows' });
   await app.register(knowledgeRoutes, { prefix: '/api/v1/knowledge' });
   await app.register(knowledgeGraphRoutes, { prefix: '/api/v1/knowledge' });
+  await app.register(memoryRoutes, { prefix: '/api/v1' });
   await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
 
   return app;
