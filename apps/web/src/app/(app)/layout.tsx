@@ -2,22 +2,26 @@
 
 import { AuthProvider, useAuth } from '@/components/auth-provider';
 import { ShellProvider } from '@/components/shell/shell-context';
-import { Sidebar } from '@/components/shell/sidebar';
+import { Sidebar, BrandMark } from '@/components/shell/sidebar';
 import { Topbar } from '@/components/shell/topbar';
 import { CommandMenu } from '@/components/shell/command-menu';
 import { AiDock } from '@/components/shell/ai-dock';
 import { PageTransition } from '@/components/shell/page-transition';
-import { BrandMark } from '@/components/shell/sidebar';
+import { LivingBackground } from '@/components/brain/living-background';
+import { BrainBoot } from '@/components/brain/brain-boot';
+import { Cursor } from '@/components/brain/cursor';
+import { SmoothScroll } from '@/components/providers/smooth-scroll';
 
 function Shell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
+      <div className="relative flex min-h-screen items-center justify-center">
+        <LivingBackground />
+        <div className="relative z-10 flex flex-col items-center gap-3">
           <BrandMark className="h-10 w-10 animate-float" />
-          <p className="text-sm text-muted-foreground">Loading your workspace…</p>
+          <p className="text-sm text-muted-foreground">Waking up your Brain…</p>
         </div>
       </div>
     );
@@ -26,7 +30,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <ShellProvider>
-      <div className="flex min-h-screen">
+      <LivingBackground />
+      <SmoothScroll />
+      <Cursor />
+      <BrainBoot />
+      <div className="relative z-10 flex min-h-screen">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar />

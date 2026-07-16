@@ -63,6 +63,24 @@ export const config = {
   uploads: {
     maxFileSizeBytes: env.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024,
   },
+  // Conversational answers (Ask Brain). Reuses the extraction provider/key
+  // by default so one LLM configuration powers the whole brain.
+  llm: (() => {
+    const provider = env.ANSWER_PROVIDER ?? env.EXTRACTION_PROVIDER ?? 'gemini';
+    const apiKey = {
+      anthropic: env.ANTHROPIC_API_KEY,
+      openai: env.OPENAI_API_KEY,
+      gemini: env.GEMINI_API_KEY,
+      local: undefined,
+      mock: undefined,
+    }[provider];
+    return {
+      provider,
+      model: env.ANSWER_MODEL ?? env.EXTRACTION_MODEL,
+      apiKey,
+      baseUrl: env.LOCAL_LLM_URL,
+    };
+  })(),
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,
     workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,

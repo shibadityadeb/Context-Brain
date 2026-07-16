@@ -864,3 +864,26 @@ export const memoryApi = {
     });
   },
 };
+
+// ── Ask Brain (conversational) ────────────────────────────────────
+
+export interface AskSource {
+  id: string;
+  kind: 'knowledge' | 'memory';
+  type: string;
+  title: string;
+}
+
+export interface AskResponse {
+  answer: string;
+  sources: AskSource[];
+}
+
+export const askApi = {
+  ask(body: {
+    question: string;
+    history?: { role: 'user' | 'assistant'; content: string }[];
+  }): Promise<AskResponse> {
+    return request('/api/v1/ask', { method: 'POST', body: JSON.stringify(body) });
+  },
+};

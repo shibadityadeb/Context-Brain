@@ -1,9 +1,10 @@
 'use client';
 
+import Image from 'next/image';
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Loader2, Lock, ShieldCheck, Sparkles } from 'lucide-react';
+import { Loader2, Lock, ShieldCheck } from 'lucide-react';
 import { Button } from '@company-brain/ui';
 import { GOOGLE_SIGN_IN_URL } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -53,9 +54,7 @@ function LoginContent() {
         <NeuralCanvas />
         <div className="relative z-10 flex h-full flex-col justify-between p-12 text-white">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/10 backdrop-blur">
-              <Sparkles className="h-5 w-5" />
-            </span>
+            <Image src="/logo.png" alt="Company Brain" width={36} height={36} priority />
             <span className="font-semibold">Company Brain</span>
           </div>
           <motion.div
@@ -95,9 +94,7 @@ function LoginContent() {
           className="w-full max-w-sm"
         >
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-ai-gradient text-white">
-              <Sparkles className="h-4 w-4" />
-            </span>
+            <Image src="/logo.png" alt="Company Brain" width={32} height={32} />
             <span className="font-semibold">Company Brain</span>
           </div>
 

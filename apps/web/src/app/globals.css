@@ -19,7 +19,7 @@
     --popover-foreground: 224 20% 12%;
 
     /* Primary IS the AI accent — one accent color, used sparingly. */
-    --primary: 250 84% 58%;
+    --primary: 228 100% 66%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 240 5% 96%;
@@ -39,11 +39,11 @@
 
     --border: 240 6% 90%;
     --input: 240 6% 90%;
-    --ring: 250 84% 58%;
+    --ring: 228 100% 66%;
 
     /* AI accent scale for gradients / glows. */
-    --ai: 250 84% 58%;
-    --ai-2: 270 80% 62%;
+    --ai: 228 100% 66%;
+    --ai-2: 239 84% 67%;
     --ai-foreground: 0 0% 100%;
 
     /* Glass + elevation. */
@@ -64,7 +64,7 @@
     --popover: 240 11% 7%;
     --popover-foreground: 240 12% 96%;
 
-    --primary: 252 90% 68%;
+    --primary: 228 100% 70%;
     --primary-foreground: 240 20% 8%;
 
     --secondary: 240 8% 13%;
@@ -84,10 +84,10 @@
 
     --border: 240 8% 16%;
     --input: 240 8% 18%;
-    --ring: 252 90% 68%;
+    --ring: 228 100% 70%;
 
-    --ai: 252 90% 68%;
-    --ai-2: 274 85% 70%;
+    --ai: 228 100% 70%;
+    --ai-2: 239 84% 72%;
     --ai-foreground: 240 20% 8%;
 
     --glass: 240 11% 9%;

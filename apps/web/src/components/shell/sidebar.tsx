@@ -1,10 +1,11 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, LogOut, Sparkles } from 'lucide-react';
+import { ChevronDown, LogOut } from 'lucide-react';
 import { Button, cn } from '@company-brain/ui';
 import { NAV, SETTINGS_ITEM, type NavItem } from '@/lib/nav';
 import { useAuth } from '@/components/auth-provider';
@@ -18,13 +19,15 @@ function isActive(pathname: string, item: NavItem): boolean {
 
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <span
-      className={cn(
-        'grid h-8 w-8 place-items-center rounded-[10px] bg-ai-gradient text-white shadow-glow',
-        className,
-      )}
-    >
-      <Sparkles className="h-4 w-4" />
+    <span className={cn('grid h-8 w-8 place-items-center', className)}>
+      <Image
+        src="/logo.png"
+        alt="Company Brain"
+        width={40}
+        height={40}
+        className="h-full w-full object-contain drop-shadow-[0_0_10px_rgba(91,124,255,0.55)]"
+        priority
+      />
     </span>
   );
 }
