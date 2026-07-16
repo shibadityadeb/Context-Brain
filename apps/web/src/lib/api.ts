@@ -534,18 +534,20 @@ export interface KnowledgeStats {
   recentRuns: Array<{ documentId: string; title: string; run: Record<string, unknown> | null }>;
 }
 
+export interface EntitySearchResult {
+  id: string;
+  type: string;
+  title: string;
+  summary: string | null;
+  status: string;
+  priority: string;
+  confidence: number;
+  mentionCount: number;
+}
+
 export interface KnowledgeEntitySearchResponse {
   query: string;
-  results: Array<{
-    id: string;
-    type: string;
-    title: string;
-    summary: string | null;
-    status: string;
-    priority: string;
-    confidence: number;
-    mentionCount: number;
-  }>;
+  results: EntitySearchResult[];
 }
 
 // ── Knowledge Graph (Phase 2) API ─────────────────────────────────

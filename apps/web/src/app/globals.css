@@ -2,46 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Company Brain — design system tokens.
+ * Neutral grays + a single indigo/violet AI accent. Primary action = accent.
+ * Values are HSL channels so Tailwind can compose opacity.
+ */
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 224 20% 12%;
+
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
-    --radius: 0.5rem;
+    --card-foreground: 224 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 20% 12%;
+
+    /* Primary IS the AI accent — one accent color, used sparingly. */
+    --primary: 250 84% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 224 20% 20%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 240 5% 96%;
+    --accent-foreground: 224 20% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 60% 40%;
+    --warning: 38 92% 50%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 250 84% 58%;
+
+    /* AI accent scale for gradients / glows. */
+    --ai: 250 84% 58%;
+    --ai-2: 270 80% 62%;
+    --ai-foreground: 0 0% 100%;
+
+    /* Glass + elevation. */
+    --glass: 0 0% 100%;
+    --glass-border: 240 6% 90%;
+    --shadow-color: 240 30% 20%;
+
+    --radius: 0.75rem;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
+    --background: 240 12% 5%;
+    --foreground: 240 12% 96%;
+
+    --card: 240 11% 7%;
+    --card-foreground: 240 12% 96%;
+
+    --popover: 240 11% 7%;
+    --popover-foreground: 240 12% 96%;
+
+    --primary: 252 90% 68%;
+    --primary-foreground: 240 20% 8%;
+
+    --secondary: 240 8% 13%;
+    --secondary-foreground: 240 12% 92%;
+
+    --muted: 240 8% 13%;
+    --muted-foreground: 240 6% 58%;
+
+    --accent: 240 8% 15%;
+    --accent-foreground: 240 12% 92%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 48%;
+    --warning: 38 92% 55%;
+
+    --border: 240 8% 16%;
+    --input: 240 8% 18%;
+    --ring: 252 90% 68%;
+
+    --ai: 252 90% 68%;
+    --ai-2: 274 85% 70%;
+    --ai-foreground: 240 20% 8%;
+
+    --glass: 240 11% 9%;
+    --glass-border: 240 8% 20%;
+    --shadow-color: 240 60% 2%;
   }
 }
 
@@ -49,7 +100,119 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+  }
+  ::selection {
+    background: hsl(var(--ai) / 0.24);
+  }
+  /* Quiet, thin scrollbars that match the theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.22);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  /* Frosted glass surface — used on the AI dock, command menu, overlays. */
+  .glass {
+    background: hsl(var(--glass) / 0.72);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid hsl(var(--glass-border) / 0.7);
+  }
+
+  /* Accent text gradient for hero words / logo. */
+  .text-gradient {
+    background-image: linear-gradient(135deg, hsl(var(--ai)) 0%, hsl(var(--ai-2)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Soft dotted grid, for empty canvases and the auth panel. */
+  .grid-dots {
+    background-image: radial-gradient(hsl(var(--muted-foreground) / 0.18) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  /* Command palette (cmdk) rows + headings. */
+  .cmdk-row {
+    @apply flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground;
+  }
+  .cmdk-row[data-selected='true'] {
+    @apply bg-accent;
+  }
+  [cmdk-group-heading] {
+    @apply px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70;
+  }
+}
+
+@layer utilities {
+  .shadow-elevation-low {
+    box-shadow:
+      0 1px 2px hsl(var(--shadow-color) / 0.06),
+      0 1px 3px hsl(var(--shadow-color) / 0.08);
+  }
+  .shadow-elevation-mid {
+    box-shadow:
+      0 2px 4px hsl(var(--shadow-color) / 0.06),
+      0 8px 24px hsl(var(--shadow-color) / 0.1);
+  }
+  .shadow-elevation-high {
+    box-shadow:
+      0 8px 32px hsl(var(--shadow-color) / 0.16),
+      0 2px 8px hsl(var(--shadow-color) / 0.1);
+  }
+  .shadow-glow {
+    box-shadow:
+      0 0 0 1px hsl(var(--ai) / 0.3),
+      0 8px 40px hsl(var(--ai) / 0.28);
+  }
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted) / 0) 0%,
+      hsl(var(--muted-foreground) / 0.08) 50%,
+      hsl(var(--muted) / 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
   }
 }
