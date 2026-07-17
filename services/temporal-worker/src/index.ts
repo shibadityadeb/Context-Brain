@@ -8,8 +8,10 @@ import {
   createKnowledgeActivityContext,
   createKnowledgeEngineActivities,
   createMemoryEngineActivities,
+  createRelationshipActivities,
 } from '@company-brain/activities';
 import { createLLMProvider } from '@company-brain/knowledge-engine';
+import { resolveGraphConfig } from '@company-brain/graph';
 import { config } from './config.js';
 import { connectWithRetry } from './connection.js';
 import { startHealthServer } from './health-server.js';
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
       ...createKnowledgeActivities(activityContext),
       ...createKnowledgeEngineActivities({ ...activityContext, llm }),
       ...createMemoryEngineActivities({ ...activityContext, tuning: config.memory }),
+      ...createRelationshipActivities({ ...activityContext, graphConfig: resolveGraphConfig() }),
     },
     // In-flight activities get this long to finish on shutdown before
     // being cancelled (their tasks are then retried by another worker).

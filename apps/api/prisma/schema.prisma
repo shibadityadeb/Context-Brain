@@ -998,6 +998,35 @@ enum KnowledgeRelationshipType {
   RESPONSIBLE_FOR
   RELATES_TO
   DUPLICATES
+  // Phase 5 — Relationship Engine. Additive; the extractor + inference engine
+  // use this fuller vocabulary. Near-synonyms of legacy values (e.g. CREATES /
+  // CREATED_BY, DUPLICATES / DUPLICATE_OF, RELATES_TO / RELATED_TO) coexist so
+  // existing rows never need rewriting.
+  ASSIGNED_BY
+  CREATED_BY
+  REPORTED_BY
+  MENTIONED_IN
+  BLOCKED_BY
+  GENERATED_FROM
+  DISCUSSED_IN
+  CREATED_IN
+  UPDATED_IN
+  REFERENCES
+  ATTACHED_TO
+  APPROVED_BY
+  REQUESTED_BY
+  COMPLETED_BY
+  IMPLEMENTS
+  FIXES
+  USES
+  CONNECTS_TO
+  FOLLOWS
+  PRECEDES
+  SUPERSEDES
+  PARENT_OF
+  CHILD_OF
+  DUPLICATE_OF
+  RELATED_TO
 }
 
 enum TimelineEventType {
@@ -1078,9 +1107,21 @@ model KnowledgeRelationship {
 
   confidence Float @default(0.5)
 
-  // Provenance of the evidence that produced this edge.
+  // True when produced by the inference engine (2-hop rules) rather than
+  // directly extracted/observed. Kept queryable so callers can trust-weight.
+  isInferred Boolean @default(false)
+  // Bumped each time reinforcing evidence updates the edge (confidence/merge).
+  version    Int     @default(1)
+
+  // Provenance of the evidence that produced this edge — full traceability.
   sourceDocumentId String? @db.Uuid
   sourceChunkId    String? @db.Uuid
+  sourceMeetingId  String? @db.Uuid
+  sourceEmailId    String?
+  sourceUrl        String?
+  // Short verbatim quote / transcript offset (ms) anchoring the evidence.
+  evidenceSnippet  String? @db.Text
+  transcriptMs     Int?
   metadata         Json?
 
   organizationId String @db.Uuid
@@ -1090,7 +1131,11 @@ model KnowledgeRelationship {
   deletedAt DateTime?
 
   @@unique([fromId, toId, type])
+  // Traversal + filtering indexes tuned for millions of edges.
+  @@index([organizationId, fromId, type])
+  @@index([organizationId, toId, type])
   @@index([organizationId, type])
+  @@index([organizationId, isInferred])
   @@index([toId])
   @@map("knowledge_relationships")
 }
@@ -1633,4 +1678,349 @@ model MemoryScore {
 
   @@index([organizationId, composite])
   @@map("memory_scores")
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase 4 — Meeting Intelligence Platform
+// Automatic capture and understanding of Google Meet calls. A Meeting is
+// detected from a synced calendar event, auto-joined by a headless bot,
+// transcribed locally (whisper.cpp) into TranscriptChunks, and mined by
+// Gemini Flash into decisions, tasks, topics and participants that flow
+// into the Phase 2 knowledge graph and Phase 3 memory engine. Like earlier
+// phases every table is fully additive: `organizationId` and the cross-phase
+// links (`connectorId`, `knowledgeObjectId`, `memoryId`, `resolvedEntityId`,
+// `calendarEventExternalId`) are plain scalars with no FK to earlier models,
+// so nothing above changes. Soft-delete + audit timestamps everywhere.
+// ════════════════════════════════════════════════════════════════
+
+enum MeetingStatus {
+  SCHEDULED // detected, waiting for start
+  JOINING // bot is opening the Meet
+  WAITING // in the lobby, waiting to be admitted
+  LIVE // admitted, capturing audio + transcribing
+  PROCESSING // call ended, finalizing summary/knowledge
+  COMPLETED // fully processed
+  FAILED // could not join / capture / process
+  CANCELLED // calendar event was cancelled
+  MISSED // never joined (bot unavailable, no admission, …)
+}
+
+// Lifecycle of a single bot capture session for a meeting.
+enum MeetingBotStatus {
+  IDLE
+  DISPATCHED
+  JOINING
+  WAITING_ADMISSION
+  CAPTURING
+  LEFT
+  ERROR
+}
+
+enum MeetingItemStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum MeetingParticipantRole {
+  HOST
+  ATTENDEE
+  BOT
+}
+
+// How a participant/decision/task was learned about.
+enum MeetingItemSource {
+  CALENDAR // known from the invite before the call
+  TRANSCRIPT // extracted from what was said
+  DETECTED // observed in the meeting UI (roster, captions)
+}
+
+model Meeting {
+  id String @id @default(uuid()) @db.Uuid
+
+  title       String
+  description String?       @db.Text
+  status      MeetingStatus @default(SCHEDULED)
+
+  // The Google Meet join URL and the calendar event it came from
+  // (ExternalResource.externalId by convention — plain scalars, no FK).
+  meetUrl                 String
+  connectorId             String? @db.Uuid
+  calendarEventExternalId String?
+  calendarId              String?
+  organizerEmail          String?
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+
+  // Bot capture session state.
+  botStatus    MeetingBotStatus @default(IDLE)
+  botSessionId String?
+
+  // Temporal linkage for observability + signalling the live workflow.
+  workflowId String?
+  runId      String?
+
+  // Rolling counters kept in sync as the meeting streams, so lists and the
+  // live UI never have to aggregate on read.
+  chunkCount    Int @default(0)
+  decisionCount Int @default(0)
+  taskCount     Int @default(0)
+  topicCount    Int @default(0)
+  memoryCount   Int @default(0)
+
+  error    String?
+  metadata Json?
+
+  organizationId String @db.Uuid
+
+  transcriptChunks TranscriptChunk[]
+  speakers         Speaker[]
+  summary          MeetingSummary?
+  decisions        MeetingDecision[]
+  tasks            MeetingTask[]
+  topics           MeetingTopic[]
+  participants     MeetingParticipant[]
+  memories         MeetingMemory[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, meetUrl, scheduledStart])
+  @@index([organizationId, status])
+  @@index([organizationId, scheduledStart])
+  @@index([workflowId])
+  @@map("meetings")
+}
+
+model TranscriptChunk {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Sequential index within the meeting; timestamps are milliseconds from
+  // the start of capture.
+  index   Int
+  startMs Int
+  endMs   Int
+  text    String @db.Text
+
+  // Optional speaker attribution (segmentation is future-ready).
+  speakerId  String?  @db.Uuid
+  speaker    Speaker? @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  confidence Float    @default(0.5)
+
+  // Set once the chunk has been mined for knowledge.
+  processedAt DateTime?
+  metadata    Json?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([meetingId, index])
+  @@index([meetingId, startMs])
+  @@index([organizationId])
+  @@map("transcript_chunks")
+}
+
+model Speaker {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Diarization label ("Speaker 1") or a detected/known display name.
+  label            String
+  // Resolved KnowledgeObject (PERSON) id — plain scalar, no FK.
+  resolvedEntityId String? @db.Uuid
+  participantId    String? @db.Uuid
+
+  transcriptChunks TranscriptChunk[]
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([meetingId, label])
+  @@index([organizationId])
+  @@map("speakers")
+}
+
+model MeetingSummary {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @unique @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  executive String  @db.Text
+  detailed  String  @db.Text
+  // [{ text }] key points and [{ text, owner? }] follow-ups.
+  keyPoints Json?
+  followUps Json?
+  sentiment String?
+
+  // Provenance of the generated summary.
+  model       String
+  generatedAt DateTime @default(now())
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@map("meeting_summaries")
+}
+
+model MeetingDecision {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  title     String
+  detail    String? @db.Text
+  // Who made / owns the decision, and the reasoning if stated.
+  owner     String?
+  rationale String? @db.Text
+
+  // Provenance + graph link (KnowledgeObject id, plain scalar).
+  transcriptChunkId String?           @db.Uuid
+  knowledgeObjectId String?           @db.Uuid
+  source            MeetingItemSource @default(TRANSCRIPT)
+  confidence        Float             @default(0.5)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([meetingId])
+  @@index([organizationId])
+  @@map("meeting_decisions")
+}
+
+model MeetingTask {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  title    String
+  detail   String?           @db.Text
+  owner    String?
+  dueDate  DateTime?
+  status   MeetingItemStatus @default(OPEN)
+  // Reuses the shared knowledge priority scale.
+  priority KnowledgePriority @default(NONE)
+
+  transcriptChunkId String?           @db.Uuid
+  knowledgeObjectId String?           @db.Uuid
+  source            MeetingItemSource @default(TRANSCRIPT)
+  confidence        Float             @default(0.5)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([meetingId])
+  @@index([organizationId, status])
+  @@map("meeting_tasks")
+}
+
+model MeetingTopic {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  title   String
+  summary String? @db.Text
+  // Coarse kind: topic | project | risk | blocker | bug | feature | idea —
+  // classified by the extractor so one table holds all discussion threads.
+  kind    String  @default("topic")
+
+  transcriptChunkId String?           @db.Uuid
+  knowledgeObjectId String?           @db.Uuid
+  source            MeetingItemSource @default(TRANSCRIPT)
+  confidence        Float             @default(0.5)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([meetingId])
+  @@index([organizationId, kind])
+  @@map("meeting_topics")
+}
+
+model MeetingParticipant {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  displayName String
+  email       String?
+  role        MeetingParticipantRole @default(ATTENDEE)
+  source      MeetingItemSource      @default(CALENDAR)
+
+  // Resolved KnowledgeObject (PERSON) id — plain scalar, no FK.
+  resolvedEntityId String?   @db.Uuid
+  joinedAt         DateTime?
+  leftAt           DateTime?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([meetingId, displayName, email])
+  @@index([meetingId])
+  @@index([organizationId])
+  @@map("meeting_participants")
+}
+
+model MeetingMemory {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String  @db.Uuid
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Links to the memory this meeting produced (Memory.id / MemoryEvent.id /
+  // KnowledgeObject.id — plain scalars, mirroring Phase 3 child tables).
+  memoryId      String? @db.Uuid
+  memoryEventId String? @db.Uuid
+  entityId      String? @db.Uuid
+  // "decision" | "task" | "topic" | "transcript" — what produced the memory.
+  kind          String  @default("transcript")
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([meetingId])
+  @@index([organizationId])
+  @@index([memoryId])
+  @@map("meeting_memories")
 }

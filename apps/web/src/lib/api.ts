@@ -434,6 +434,10 @@ export interface KnowledgeObjectSummary {
   mentionCount: number;
   relationshipCount: number;
   tags: string[];
+  /** The Project this entity belongs to (via the graph), when known. */
+  project?: { id: string; title: string } | null;
+  /** The source document it was extracted from (fallback grouping). */
+  source?: { id: string; title: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -869,7 +873,7 @@ export const memoryApi = {
 
 export interface AskSource {
   id: string;
-  kind: 'knowledge' | 'memory';
+  kind: 'knowledge' | 'memory' | 'meeting';
   type: string;
   title: string;
 }
@@ -885,5 +889,355 @@ export const askApi = {
     history?: { role: 'user' | 'assistant'; content: string }[];
   }): Promise<AskResponse> {
     return request('/api/v1/ask', { method: 'POST', body: JSON.stringify(body) });
+  },
+};
+
+// ── Meeting Intelligence (Phase 4) ────────────────────────────────
+
+export interface MeetingRow {
+  id: string;
+  title: string;
+  status: string;
+  botStatus: string;
+  meetUrl: string;
+  scheduledStart: string;
+  scheduledEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+  chunkCount: number;
+  decisionCount: number;
+  taskCount: number;
+  topicCount: number;
+  memoryCount: number;
+  organizerEmail: string | null;
+}
+
+export interface MeetingList {
+  items: MeetingRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface MeetingSummaryData {
+  executive: string;
+  detailed: string;
+  keyPoints: Array<{ text: string }> | null;
+  followUps: Array<{ text: string; owner?: string | null }> | null;
+  sentiment: string | null;
+  model: string;
+  generatedAt: string;
+}
+
+export interface MeetingParticipantData {
+  id: string;
+  displayName: string;
+  email: string | null;
+  role: string;
+  source: string;
+  resolvedEntityId: string | null;
+  joinedAt: string | null;
+  leftAt: string | null;
+}
+
+export interface MeetingDecisionData {
+  id: string;
+  title: string;
+  detail: string | null;
+  owner: string | null;
+  rationale: string | null;
+  knowledgeObjectId: string | null;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface MeetingTaskData {
+  id: string;
+  title: string;
+  detail: string | null;
+  owner: string | null;
+  dueDate: string | null;
+  status: string;
+  priority: string;
+  knowledgeObjectId: string | null;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface MeetingTopicData {
+  id: string;
+  title: string;
+  summary: string | null;
+  kind: string;
+  knowledgeObjectId: string | null;
+  confidence: number;
+  createdAt: string;
+}
+
+export interface TranscriptChunkData {
+  id: string;
+  index: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+  confidence: number;
+  processedAt: string | null;
+}
+
+export interface MeetingProgressData {
+  meetingId: string;
+  stage: string;
+  chunkCount: number;
+  decisionCount: number;
+  taskCount: number;
+  topicCount: number;
+  memoryCount: number;
+  error: string | null;
+}
+
+export interface MeetingDetail extends MeetingRow {
+  description: string | null;
+  organizerEmail: string | null;
+  calendarEventExternalId: string | null;
+  summary: MeetingSummaryData | null;
+  participants: MeetingParticipantData[];
+  decisions: MeetingDecisionData[];
+  tasks: MeetingTaskData[];
+  topics: MeetingTopicData[];
+  transcriptChunks: TranscriptChunkData[];
+  progress: MeetingProgressData | null;
+  _count?: { memories: number };
+}
+
+/** One frame pushed over the live WebSocket. */
+export interface MeetingLiveEvent {
+  type:
+    | 'status'
+    | 'transcript'
+    | 'decision'
+    | 'task'
+    | 'topic'
+    | 'participant'
+    | 'memory'
+    | 'summary'
+    | 'timeline';
+  meetingId: string;
+  at: string;
+  data: Record<string, unknown>;
+}
+
+export const meetingApi = {
+  list(
+    params: {
+      view?: 'upcoming' | 'live' | 'completed' | 'all';
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<MeetingList> {
+    return request(`/api/v1/meetings${toQuery(params)}`);
+  },
+
+  get(id: string): Promise<MeetingDetail> {
+    return request(`/api/v1/meetings/${id}`);
+  },
+
+  scan(): Promise<{ workflowId: string; runId: string }> {
+    return request('/api/v1/meetings/scan', { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  join(id: string): Promise<{ started: boolean }> {
+    return request(`/api/v1/meetings/${id}/join`, { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  leave(id: string): Promise<{ stopped: boolean }> {
+    return request(`/api/v1/meetings/${id}/leave`, { method: 'POST', body: JSON.stringify({}) });
+  },
+};
+
+/** WebSocket URL for a meeting's live feed (token passed as a query param). */
+export function meetingLiveUrl(id: string): string | null {
+  const token = getAccessToken();
+  if (!token) return null;
+  const wsBase = API_URL.replace(/^http/, 'ws');
+  return `${wsBase}/api/v1/meetings/${id}/live?token=${encodeURIComponent(token)}`;
+}
+
+/** One platform event delivered over the realtime feed. */
+export interface LiveEvent {
+  id: string;
+  type: string;
+  occurredAt: string;
+  organizationId: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface ActivityStatus {
+  active: boolean;
+  documents: number;
+  syncing: number;
+  liveMeetings: number;
+  label: string;
+}
+
+export const activityApi = {
+  status(): Promise<ActivityStatus> {
+    return request('/api/v1/activity');
+  },
+};
+
+/** WebSocket URL for the org-wide realtime platform-event feed. */
+export function liveEventsUrl(): string | null {
+  const token = getAccessToken();
+  if (!token) return null;
+  const wsBase = API_URL.replace(/^http/, 'ws');
+  return `${wsBase}/api/v1/live?token=${encodeURIComponent(token)}`;
+}
+
+// ── Relationship Engine / Knowledge Graph (Phase 5) ───────────────
+
+export interface GraphNodeView {
+  id: string;
+  type: string;
+  title: string;
+  status?: string;
+  priority?: string;
+  confidence: number;
+}
+export interface GraphEdgeView {
+  id: string;
+  from: string;
+  to: string;
+  type: string;
+  confidence: number;
+  isInferred: boolean;
+}
+export interface GraphData {
+  nodes: GraphNodeView[];
+  edges: GraphEdgeView[];
+}
+
+export interface GraphEvidence {
+  documentId: string | null;
+  chunkId: string | null;
+  meetingId: string | null;
+  emailId: string | null;
+  url: string | null;
+  snippet: string | null;
+  transcriptMs: number | null;
+}
+export interface GraphRelationship {
+  id: string;
+  type: string;
+  confidence: number;
+  isInferred: boolean;
+  direction: 'outgoing' | 'incoming';
+  from: { id: string; type: string; title: string };
+  to: { id: string; type: string; title: string };
+  evidence: GraphEvidence;
+}
+export interface GraphObjectDetail {
+  object: {
+    id: string;
+    type: string;
+    title: string;
+    summary: string | null;
+    status: string;
+    priority: string;
+  };
+  relationships: GraphRelationship[];
+}
+export interface GraphNeighbor extends GraphNodeView {
+  distance: number;
+  viaType: string | null;
+}
+export interface GraphPath {
+  from: string;
+  to: string;
+  found: boolean;
+  length: number | null;
+  nodes: Array<Partial<GraphNodeView> & { id: string }>;
+  edges: GraphEdgeView[];
+}
+
+interface GraphQueryParams {
+  rootId?: string;
+  type?: string;
+  relationshipTypes?: string[];
+  entityTypes?: string[];
+  minConfidence?: number;
+  depth?: number;
+  limit?: number;
+  includeInferred?: boolean;
+}
+
+function graphQuery(params: GraphQueryParams): string {
+  const flat: Record<string, string | number | undefined> = {
+    rootId: params.rootId,
+    type: params.type,
+    relationshipTypes: params.relationshipTypes?.join(','),
+    entityTypes: params.entityTypes?.join(','),
+    minConfidence: params.minConfidence,
+    depth: params.depth,
+    limit: params.limit,
+    includeInferred:
+      params.includeInferred === undefined ? undefined : String(params.includeInferred),
+  };
+  return toQuery(flat);
+}
+
+export const graphApi = {
+  getGraph(params: GraphQueryParams = {}): Promise<GraphData> {
+    return request(`/api/v1/graph${graphQuery(params)}`);
+  },
+  getObject(id: string): Promise<GraphObjectDetail> {
+    return request(`/api/v1/graph/object/${id}`);
+  },
+  getNeighbors(
+    id: string,
+    params: {
+      depth?: number;
+      relationshipTypes?: string[];
+      entityTypes?: string[];
+      minConfidence?: number;
+      direction?: 'out' | 'in' | 'both';
+      limit?: number;
+    } = {},
+  ): Promise<{ root: string; depth: number; neighbors: GraphNeighbor[] }> {
+    const flat: Record<string, string | number | undefined> = {
+      depth: params.depth,
+      relationshipTypes: params.relationshipTypes?.join(','),
+      entityTypes: params.entityTypes?.join(','),
+      minConfidence: params.minConfidence,
+      direction: params.direction,
+      limit: params.limit,
+    };
+    return request(`/api/v1/graph/neighbors/${id}${toQuery(flat)}`);
+  },
+  getPath(params: {
+    from: string;
+    to: string;
+    maxDepth?: number;
+    relationshipTypes?: string[];
+    minConfidence?: number;
+  }): Promise<GraphPath> {
+    const flat: Record<string, string | number | undefined> = {
+      from: params.from,
+      to: params.to,
+      maxDepth: params.maxDepth,
+      relationshipTypes: params.relationshipTypes?.join(','),
+      minConfidence: params.minConfidence,
+    };
+    return request(`/api/v1/graph/path${toQuery(flat)}`);
+  },
+  search(params: {
+    q: string;
+    type?: string;
+    limit?: number;
+  }): Promise<KnowledgeEntitySearchResponse> {
+    return request(`/api/v1/graph/search${toQuery(params)}`);
+  },
+  rebuild(): Promise<{ workflowId: string; runId: string }> {
+    return request('/api/v1/graph/rebuild', { method: 'POST', body: JSON.stringify({}) });
   },
 };

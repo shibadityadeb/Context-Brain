@@ -10,8 +10,10 @@ const STREAM_MAX_LENGTH = 100_000;
 export interface EmitInput {
   type: EventType;
   organizationId: string;
-  connectorId: string;
-  provider: string;
+  // Connector-scoped events set these; platform events (e.g. relationship.*)
+  // may omit them.
+  connectorId?: string;
+  provider?: string;
   resource?: ResourceRef;
   payload?: Record<string, unknown>;
 }

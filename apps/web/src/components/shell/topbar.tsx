@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Menu, Search, Sparkles } from 'lucide-react';
 import { Button } from '@company-brain/ui';
 import { Kbd } from '@/components/ui/primitives';
+import { ActivityIndicator } from './activity-indicator';
 import { useShell } from './shell-context';
 
 export function Topbar() {
@@ -35,6 +36,7 @@ export function Topbar() {
       </button>
 
       <div className="ml-auto flex items-center gap-2">
+        <ActivityIndicator />
         <Button
           size="sm"
           className="gap-1.5 bg-ai-gradient text-white hover:opacity-90"

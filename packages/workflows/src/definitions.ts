@@ -55,6 +55,35 @@ export interface MemoryProgress {
 }
 export const getMemoryProgressQuery = defineQuery<MemoryProgress>('getMemoryProgress');
 
+/** meetingLifecycleWorkflow — one transcript segment pushed from the bot. */
+export interface MeetingSegmentInput {
+  startMs: number;
+  endMs: number;
+  text: string;
+  confidence?: number;
+  speaker?: string;
+}
+/** Bot → workflow: a batch of new transcript segments (final on the last flush). */
+export const meetingSegmentsSignal =
+  defineSignal<[{ segments: MeetingSegmentInput[]; final: boolean }]>('meetingSegments');
+/** Bot → workflow: admitted into the call (or admission failed). */
+export const meetingAdmittedSignal = defineSignal<[{ admitted: boolean }]>('meetingAdmitted');
+/** Bot → workflow: the call ended / bot left. */
+export const meetingEndedSignal = defineSignal('meetingEnded');
+
+/** meetingLifecycleWorkflow — live meeting progress. */
+export interface MeetingProgress {
+  meetingId: string;
+  stage: 'SCHEDULED' | 'JOINING' | 'WAITING' | 'LIVE' | 'PROCESSING' | 'COMPLETE' | 'FAILED';
+  chunkCount: number;
+  decisionCount: number;
+  taskCount: number;
+  topicCount: number;
+  memoryCount: number;
+  error: string | null;
+}
+export const getMeetingProgressQuery = defineQuery<MeetingProgress>('getMeetingProgress');
+
 /** connector sync workflows — live page/resource counters. */
 export interface ConnectorSyncProgress {
   connectorId: string;

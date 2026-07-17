@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker --filter @company-brain/temporal-worker --filter @company-brain/connector-worker dev",
+    "dev": "pnpm --parallel --filter @company-brain/api --filter @company-brain/web --filter @company-brain/worker --filter @company-brain/temporal-worker --filter @company-brain/connector-worker --filter @company-brain/meeting-worker dev",
     "dev:api": "pnpm --filter @company-brain/api dev",
     "dev:web": "pnpm --filter @company-brain/web dev",
     "dev:worker": "pnpm --filter @company-brain/worker dev",
@@ -27,7 +27,8 @@
     "db:seed": "pnpm --filter @company-brain/api db:seed",
     "db:studio": "pnpm --filter @company-brain/api db:studio",
     "prepare": "husky",
-    "dev:connector-worker": "pnpm --filter @company-brain/connector-worker dev"
+    "dev:connector-worker": "pnpm --filter @company-brain/connector-worker dev",
+    "dev:meeting-worker": "pnpm --filter @company-brain/meeting-worker dev"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",

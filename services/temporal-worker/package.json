@@ -19,7 +19,8 @@
     "@temporalio/worker": "^1.20.2",
     "dotenv": "^16.5.0",
     "pino": "^9.6.0",
-    "zod": "^3.24.3"
+    "zod": "^3.24.3",
+    "@company-brain/graph": "workspace:*"
   },
   "devDependencies": {
     "@company-brain/config": "workspace:*",

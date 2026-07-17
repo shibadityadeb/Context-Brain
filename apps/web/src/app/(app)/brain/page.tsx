@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, Input, cn } from '@company-brain/ui';
 import { knowledgeGraphApi, type KnowledgeObjectList, type KnowledgeStats } from '@/lib/api';
+import { useLiveRefresh } from '@/lib/use-live';
+import { KNOWLEDGE_LIVE_EVENTS } from '@/components/collections/knowledge-collection';
 import { typeColor } from '@/components/knowledge/graph-view';
 
 const PAGE_SIZE = 25;
@@ -39,6 +41,9 @@ export default function KnowledgeExplorerPage() {
     const timer = setTimeout(() => void load(), search ? 300 : 0);
     return () => clearTimeout(timer);
   }, [load, search]);
+
+  // Realtime: refresh the explorer when a source is (re)processed.
+  useLiveRefresh(KNOWLEDGE_LIVE_EVENTS, () => void load());
 
   const totalPages = list ? Math.max(1, Math.ceil(list.total / PAGE_SIZE)) : 1;
 

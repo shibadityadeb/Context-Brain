@@ -1,9 +1,10 @@
 import { ApplicationFailure, log } from '@temporalio/activity';
 import type { Prisma } from '@prisma/client';
+import { EventBus } from '@company-brain/events';
 import { embedAll } from '@company-brain/knowledge';
 import {
   ExtractionValidationError,
-  LLMProviderError,
+  MockProvider,
   extractKnowledge,
   normalizeTitle,
   resolveEntity,
@@ -28,6 +29,8 @@ export interface KnowledgeRunInput {
 export interface ExtractStats {
   chunksProcessed: number;
   chunksFailed: number;
+  /** Chunks extracted with the rule-based fallback (LLM was unavailable). */
+  chunksDegraded: number;
   objectsCreated: number;
   objectsUpdated: number;
   mentions: number;
@@ -71,8 +74,34 @@ const MAX_CHUNKS_PER_DOCUMENT = 25;
 /** Merge threshold — stricter than first-pass resolution. */
 const MERGE_SIMILARITY_THRESHOLD = 0.92;
 
+/**
+ * Derive a Project name for a source document — its first heading, else a
+ * cleaned filename (drop extension, "Copy of", and trailing dates). Lets the
+ * app group tasks/bugs/people project-wise even when extraction didn't name a
+ * project explicitly, per the product requirement "project = doc name/heading".
+ */
+function deriveProjectName(document: { title: string; metadata: Prisma.JsonValue | null }): string {
+  const meta = (document.metadata ?? {}) as { headings?: string[] };
+  const heading = (meta.headings ?? []).find(
+    (h) => typeof h === 'string' && h.trim().length > 2 && h.trim().length < 80,
+  );
+  const base = heading ?? document.title;
+  const cleaned = base
+    .replace(/\.(csv|xlsx?|pdf|docx?|txt|md|json)$/i, '')
+    .replace(/^copy of\s+/i, '')
+    .replace(/\(?\d{1,2}[ ._/-]\d{1,2}[ ._/-]\d{2,4}\)?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length >= 2 ? cleaned : document.title;
+}
+
 export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityContext) {
-  const { prisma, qdrant, embeddings, llm } = ctx;
+  const { prisma, qdrant, embeddings, llm, redis } = ctx;
+  const bus = new EventBus(redis);
+  // Deterministic, no-network extractor used as a fallback when the primary
+  // LLM is unavailable (rate-limited / quota exhausted) so a source always
+  // yields some knowledge instead of failing to zero. No paid API.
+  const fallbackLlm = new MockProvider();
 
   async function requireDocument(documentId: string) {
     const document = await prisma.document.findFirst({
@@ -350,40 +379,71 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
       const stats: ExtractStats = {
         chunksProcessed: 0,
         chunksFailed: 0,
+        chunksDegraded: 0,
         objectsCreated: 0,
         objectsUpdated: 0,
         mentions: 0,
         relationships: 0,
       };
 
+      // Once the LLM proves unavailable (rate-limit/quota/auth), stop hammering
+      // it and extract the rest of the document with the rule-based fallback —
+      // conserves the free-tier quota and keeps the run moving.
+      let llmHealthy = true;
+
       for (const chunk of chunks) {
-        try {
-          const extraction = await extractKnowledge(llm, {
-            text: chunk.content.slice(0, 8000),
-            heading: chunk.heading,
-            source: {
-              documentTitle: document.title,
-              fileName: document.fileName,
-              mimeType: document.mimeType,
-            },
-          });
-          await persistExtraction(document, chunk, extraction, stats);
-          stats.chunksProcessed += 1;
-        } catch (error) {
-          if (error instanceof LLMProviderError && !error.retryable) {
-            throw ApplicationFailure.nonRetryable(error.message, 'LLMProviderError');
+        const input = {
+          text: chunk.content.slice(0, 8000),
+          heading: chunk.heading,
+          source: {
+            documentTitle: document.title,
+            fileName: document.fileName,
+            mimeType: document.mimeType,
+          },
+        };
+
+        let extraction: ExtractionResult | null = null;
+        if (llmHealthy) {
+          try {
+            extraction = await extractKnowledge(llm, input);
+          } catch (error) {
+            if (error instanceof ExtractionValidationError) {
+              // Model produced unparseable output for this chunk — skip it.
+              stats.chunksFailed += 1;
+              log.warn('chunk extraction failed validation', {
+                documentId: document.id,
+                chunkId: chunk.id,
+                issues: error.issues.slice(0, 5),
+              });
+              continue;
+            }
+            // Provider unavailable (rate limit / quota / bad key) → degrade the
+            // rest of this document to the deterministic extractor.
+            llmHealthy = false;
+            log.warn('LLM extraction unavailable — degrading to rule-based extractor', {
+              documentId: document.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
-          if (error instanceof ExtractionValidationError) {
+        }
+
+        if (!extraction) {
+          try {
+            extraction = await extractKnowledge(fallbackLlm, input);
+            stats.chunksDegraded += 1;
+          } catch (error) {
             stats.chunksFailed += 1;
-            log.warn('chunk extraction failed validation', {
+            log.warn('fallback extraction failed', {
               documentId: document.id,
               chunkId: chunk.id,
-              issues: error.issues.slice(0, 5),
+              error: error instanceof Error ? error.message : String(error),
             });
             continue;
           }
-          throw error;
         }
+
+        await persistExtraction(document, chunk, extraction, stats);
+        stats.chunksProcessed += 1;
       }
 
       log.info('knowledge extraction complete', { documentId: document.id, ...stats });
@@ -430,16 +490,51 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
         },
       });
 
+      // Ensure a Project for this source (from its heading/name) so the app can
+      // segregate tasks/bugs/people project-wise. Deduped by normalized name.
+      const projectTitle = deriveProjectName(document);
+      const projectNormalized = normalizeTitle(projectTitle);
+      let projectNode = await prisma.knowledgeObject.findFirst({
+        where: {
+          organizationId: document.organizationId,
+          type: 'PROJECT',
+          normalizedTitle: projectNormalized,
+          deletedAt: null,
+          mergedIntoId: null,
+        },
+        select: { id: true },
+      });
+      projectNode ??= await prisma.knowledgeObject.create({
+        data: {
+          type: 'PROJECT',
+          title: projectTitle,
+          normalizedTitle: projectNormalized,
+          summary: `Project inferred from source "${document.title}"`,
+          status: 'ACTIVE',
+          confidence: 0.6,
+          sourceDocumentId: document.id,
+          createdBy: 'system:project-from-source',
+          organizationId: document.organizationId,
+        },
+        select: { id: true },
+      });
+
+      // Fetch the mentioned objects with their types so we can pick edge kinds.
+      const mentioned = await prisma.knowledgeObject.findMany({
+        where: { id: { in: mentionedIds }, deletedAt: null },
+        select: { id: true, type: true },
+      });
+
       let created = 0;
-      for (const objectId of mentionedIds) {
-        if (objectId === documentObject.id) continue;
+      const link = async (fromId: string, toId: string, type: string, confidence: number) => {
+        if (fromId === toId) return;
         try {
           await prisma.knowledgeRelationship.create({
             data: {
-              type: 'MENTIONS',
-              fromId: documentObject.id,
-              toId: objectId,
-              confidence: 1,
+              type: type as never,
+              fromId,
+              toId,
+              confidence,
               sourceDocumentId: document.id,
               organizationId: document.organizationId,
             },
@@ -448,7 +543,26 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
         } catch {
           // unique(fromId,toId,type) — already linked.
         }
+      };
+
+      for (const object of mentioned) {
+        if (object.id === documentObject.id) continue;
+        // The source document mentions every entity.
+        await link(documentObject.id, object.id, 'MENTIONS', 1);
+        // Group entities under the source's project: people work on it,
+        // everything else belongs to it. (Projects/documents don't self-link.)
+        if (
+          object.id !== projectNode.id &&
+          object.type !== 'PROJECT' &&
+          object.type !== 'DOCUMENT'
+        ) {
+          const worksOn = object.type === 'PERSON' || object.type === 'TEAM';
+          await link(object.id, projectNode.id, worksOn ? 'WORKS_ON' : 'BELONGS_TO', 0.6);
+        }
       }
+      // The source document is part of its project too.
+      await link(documentObject.id, projectNode.id, 'PART_OF', 0.6);
+
       return { documentObjectId: documentObject.id, relationshipsCreated: created };
     },
 
@@ -604,6 +718,38 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
         where: { id: input.documentId },
         data: { metadata: metadata as Prisma.InputJsonValue },
       });
+
+      // Realtime: tell every subscribed UI the source's knowledge changed so it
+      // refreshes affected views (entities, graph, counts) without a reload.
+      if (input.success) {
+        try {
+          await bus.publish({
+            type: 'knowledge.updated',
+            organizationId: document.organizationId,
+            payload: {
+              documentId: input.documentId,
+              title: document.title,
+              stats: (input.stats ?? {}) as Record<string, unknown>,
+            },
+          });
+        } catch (error) {
+          log.warn('failed to publish knowledge.updated', {
+            documentId: input.documentId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    },
+
+    /** Resolve a document's organization — lets the workflow scope memory. */
+    async getDocumentOrganization(input: {
+      documentId: string;
+    }): Promise<{ organizationId: string | null }> {
+      const document = await prisma.document.findUnique({
+        where: { id: input.documentId },
+        select: { organizationId: true },
+      });
+      return { organizationId: document?.organizationId ?? null };
     },
   };
 
