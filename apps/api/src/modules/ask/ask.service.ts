@@ -1,5 +1,10 @@
 import type { PrismaClient } from '@prisma/client';
 import { createLLMProvider, type LLMProvider } from '@company-brain/knowledge-engine';
+import {
+  SqlRetrievalService,
+  type RetrievalService,
+  type RetrievedItem,
+} from '@company-brain/retrieval';
 import { config } from '../../config/index.js';
 import { ForbiddenError } from '../../utils/errors.js';
 import type { AskBody } from './ask.schemas.js';
@@ -8,80 +13,24 @@ interface Deps {
   prisma: PrismaClient;
 }
 
-interface Retrieved {
-  id: string;
-  kind: 'knowledge' | 'memory';
-  type: string;
-  title: string;
-  summary: string | null;
-}
+type Retrieved = RetrievedItem;
 
 export interface AskSource {
   id: string;
-  kind: 'knowledge' | 'memory';
+  kind: RetrievedItem['kind'];
   type: string;
   title: string;
 }
 
-const STOP = new Set([
-  'the',
-  'a',
-  'an',
-  'and',
-  'or',
-  'to',
-  'of',
-  'in',
-  'on',
-  'for',
-  'how',
-  'what',
-  'who',
-  'why',
-  'when',
-  'where',
-  'did',
-  'do',
-  'does',
-  'we',
-  'our',
-  'is',
-  'are',
-  'was',
-  'were',
-  'it',
-  'this',
-  'that',
-  'with',
-  'about',
-  'i',
-  'you',
-  'me',
-  'my',
-  'can',
-  'could',
-  'should',
-  'would',
-  'please',
-  'tell',
-  'show',
-  'give',
-  'find',
-  'get',
-  'there',
-  'their',
-  'they',
-  'have',
-  'has',
-]);
-
 /**
  * Ask Brain — a conversational company librarian. It finds the relevant
- * records with a fast keyword search (no vectors), then an LLM turns them into
- * one natural, cited answer. Never invents beyond what was found.
+ * records through the pluggable RetrievalService (SQL keyword search today,
+ * a vector store tomorrow — this file never changes), then an LLM turns them
+ * into one natural, cited answer. Never invents beyond what was found.
  */
 export class AskService {
   private readonly llm: LLMProvider;
+  private readonly retrieval: RetrievalService;
 
   constructor(private readonly deps: Deps) {
     this.llm = createLLMProvider({
@@ -90,6 +39,7 @@ export class AskService {
       apiKey: config.llm.apiKey,
       baseUrl: config.llm.baseUrl,
     });
+    this.retrieval = new SqlRetrievalService(this.deps.prisma);
   }
 
   async resolveOrganization(userId: string): Promise<string> {
@@ -110,64 +60,10 @@ export class AskService {
     return { answer, sources };
   }
 
-  // ── Keyword retrieval (no embeddings / RAG) ─────────────────────
-
-  private keywords(q: string): string[] {
-    return [
-      ...new Set(
-        q
-          .toLowerCase()
-          .split(/[^a-z0-9]+/)
-          .filter((t) => t.length > 2 && !STOP.has(t)),
-      ),
-    ].slice(0, 6);
-  }
+  // ── Retrieval (pluggable — SQL keyword search today) ────────────
 
   private async retrieve(organizationId: string, question: string): Promise<Retrieved[]> {
-    const terms = this.keywords(question);
-    if (terms.length === 0) return [];
-
-    const objectOr = terms.flatMap((t) => [
-      { title: { contains: t, mode: 'insensitive' as const } },
-      { summary: { contains: t, mode: 'insensitive' as const } },
-      { description: { contains: t, mode: 'insensitive' as const } },
-    ]);
-    const memoryOr = terms.flatMap((t) => [
-      { subject: { contains: t, mode: 'insensitive' as const } },
-      { summary: { contains: t, mode: 'insensitive' as const } },
-    ]);
-
-    const [objects, memories] = await Promise.all([
-      this.deps.prisma.knowledgeObject.findMany({
-        where: { organizationId, deletedAt: null, mergedIntoId: null, OR: objectOr },
-        orderBy: { updatedAt: 'desc' },
-        take: 10,
-        select: { id: true, type: true, title: true, summary: true },
-      }),
-      this.deps.prisma.memory.findMany({
-        where: { organizationId, deletedAt: null, status: 'ACTIVE', OR: memoryOr },
-        orderBy: { importance: 'desc' },
-        take: 5,
-        select: { id: true, memoryType: true, subject: true, summary: true },
-      }),
-    ]);
-
-    return [
-      ...objects.map((o): Retrieved => ({
-        id: o.id,
-        kind: 'knowledge',
-        type: o.type,
-        title: o.title,
-        summary: o.summary,
-      })),
-      ...memories.map((m): Retrieved => ({
-        id: m.id,
-        kind: 'memory',
-        type: m.memoryType,
-        title: m.subject,
-        summary: m.summary,
-      })),
-    ];
+    return this.retrieval.retrieve(organizationId, question);
   }
 
   // ── Conversational answer ───────────────────────────────────────

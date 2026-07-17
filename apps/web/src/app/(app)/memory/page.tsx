@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@company-brain/ui';
 import { memoryApi, type MemoryList, type MemoryStats } from '@/lib/api';
+import { useLiveRefresh } from '@/lib/use-live';
 import { fmtPct, memoryTypeColor } from '@/components/memory/util';
 
 const MEMORY_TYPES = ['SEMANTIC', 'EPISODIC', 'PROCEDURAL', 'WORKING', 'ORGANIZATIONAL'];
@@ -51,6 +52,9 @@ export default function MemoryExplorerPage() {
     const id = setTimeout(load, 200);
     return () => clearTimeout(id);
   }, [load]);
+
+  // Realtime: memory reflects the latest knowledge automatically.
+  useLiveRefresh(['memory.updated', 'knowledge.updated'], load);
 
   async function rebuild() {
     setRebuilding(true);

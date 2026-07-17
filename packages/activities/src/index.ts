@@ -37,6 +37,32 @@ export type {
 } from './knowledge-engine.activities.js';
 export { createMemoryEngineActivities } from './memory-engine.activities.js';
 export type { MemoryEngineActivityContext } from './memory.context.js';
+export { createMeetingActivities, MEETING_CHANNEL_PREFIX } from './meeting.activities.js';
+export type { MeetingActivityContext } from './meeting.context.js';
+export { createRelationshipActivities } from './relationship.activities.js';
+export type {
+  RelationshipActivities,
+  RelationshipActivityContext,
+  CreateRelationshipInput,
+  UpsertRelationshipResult,
+  InferRelationshipsInput,
+  InferStats,
+  RelationshipMergeStats,
+} from './relationship.activities.js';
+export type {
+  MeetingActivities,
+  MeetingEventType,
+  MeetingLiveEvent,
+  MeetingRef,
+  DetectMeetingsInput,
+  DetectMeetingsResult,
+  DetectedMeetingRow,
+  IngestSegmentsInput,
+  IngestSegmentsResult,
+  ExtractChunkInput,
+  ExtractChunkResult,
+  FinalizeResult,
+} from './meeting.activities.js';
 export type {
   MemoryEngineActivities,
   MemoryRunInput,

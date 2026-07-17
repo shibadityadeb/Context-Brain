@@ -6,6 +6,7 @@
 export const TASK_QUEUES = {
   core: 'brain-core',
   connectors: 'brain-connectors',
+  meetings: 'brain-meetings',
 } as const;
 export type TaskQueue = (typeof TASK_QUEUES)[keyof typeof TASK_QUEUES];
 
@@ -35,5 +36,9 @@ export const WORKFLOW_TYPES = {
   emailSync: 'emailSyncWorkflow',
   calendarSync: 'calendarSyncWorkflow',
   permissionSync: 'permissionSyncWorkflow',
+  meetingLifecycle: 'meetingLifecycleWorkflow',
+  meetingScheduler: 'meetingSchedulerWorkflow',
+  graphInference: 'graphInferenceWorkflow',
+  graphRebuild: 'graphRebuildWorkflow',
 } as const;
 export type WorkflowType = (typeof WORKFLOW_TYPES)[keyof typeof WORKFLOW_TYPES];

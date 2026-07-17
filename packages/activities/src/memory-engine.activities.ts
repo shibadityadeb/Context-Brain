@@ -1,5 +1,6 @@
 import { log } from '@temporalio/activity';
 import { Prisma } from '@prisma/client';
+import { EventBus } from '@company-brain/events';
 import {
   aggregateConfidence,
   baseImportance,
@@ -113,6 +114,7 @@ type Tx = Prisma.TransactionClient;
 
 export function createMemoryEngineActivities(ctx: MemoryEngineActivityContext) {
   const { prisma, redis, tuning } = ctx;
+  const bus = new EventBus(redis);
 
   // ── helpers ───────────────────────────────────────────────────
 
@@ -1096,6 +1098,24 @@ export function createMemoryEngineActivities(ctx: MemoryEngineActivityContext) {
       log.warn('failed to persist memory run summary', {
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+
+    // Realtime: memory changed → subscribed UIs refresh the memory views.
+    if (input.success) {
+      try {
+        await bus.publish({
+          type: 'memory.updated',
+          organizationId: input.organizationId,
+          payload: {
+            documentId: input.documentId ?? null,
+            stats: (input.stats ?? {}) as Record<string, unknown>,
+          },
+        });
+      } catch (error) {
+        log.warn('failed to publish memory.updated', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 

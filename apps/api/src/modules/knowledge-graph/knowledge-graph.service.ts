@@ -70,6 +70,13 @@ export class KnowledgeGraphService {
       }),
     ]);
 
+    // Resolve the "project" each object belongs to (via the graph) and its
+    // source document — so the UI can group entities project-wise / per source.
+    const grouping = await this.resolveGrouping(
+      organizationId,
+      objects.map((o) => ({ id: o.id, type: o.type, sourceDocumentId: o.sourceDocumentId })),
+    );
+
     return {
       total,
       page: query.page,
@@ -88,10 +95,101 @@ export class KnowledgeGraphService {
         mentionCount: object._count.mentions,
         relationshipCount: object._count.relationsFrom + object._count.relationsTo,
         tags: object.tags.map((t) => t.tag.name),
+        project: grouping.get(object.id)?.project ?? null,
+        source: grouping.get(object.id)?.source ?? null,
         updatedAt: object.updatedAt,
         createdAt: object.createdAt,
       })),
     };
+  }
+
+  /**
+   * For a page of objects, resolve the Project each belongs to (highest-
+   * confidence PROJECT neighbor in the graph) and its source document, so the
+   * UI can segregate Tasks/Bugs/… project-wise (falling back to the doc name).
+   * Two batched queries — no N+1.
+   */
+  private async resolveGrouping(
+    organizationId: string,
+    objects: Array<{ id: string; type: string; sourceDocumentId: string | null }>,
+  ): Promise<
+    Map<
+      string,
+      {
+        project: { id: string; title: string } | null;
+        source: { id: string; title: string } | null;
+      }
+    >
+  > {
+    const result = new Map<
+      string,
+      {
+        project: { id: string; title: string } | null;
+        source: { id: string; title: string } | null;
+      }
+    >();
+    if (objects.length === 0) return result;
+    const ids = objects.map((o) => o.id);
+    const idSet = new Set(ids);
+
+    // Project membership: any edge connecting an object to a PROJECT node.
+    const edges = await this.deps.prisma.knowledgeRelationship.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        OR: [
+          { fromId: { in: ids }, to: { type: 'PROJECT', deletedAt: null } },
+          { toId: { in: ids }, from: { type: 'PROJECT', deletedAt: null } },
+        ],
+      },
+      orderBy: { confidence: 'desc' },
+      select: {
+        fromId: true,
+        toId: true,
+        from: { select: { id: true, type: true, title: true } },
+        to: { select: { id: true, type: true, title: true } },
+      },
+    });
+
+    const projectByObject = new Map<string, { id: string; title: string }>();
+    for (const edge of edges) {
+      const project = edge.from.type === 'PROJECT' ? edge.from : edge.to;
+      const objectId = edge.from.type === 'PROJECT' ? edge.toId : edge.fromId;
+      if (project.type !== 'PROJECT' || !idSet.has(objectId)) continue;
+      if (!projectByObject.has(objectId))
+        projectByObject.set(objectId, { id: project.id, title: project.title });
+    }
+
+    // Source documents (fallback grouping when no project is known).
+    const docIds = [
+      ...new Set(objects.map((o) => o.sourceDocumentId).filter((d): d is string => Boolean(d))),
+    ];
+    const docs = docIds.length
+      ? await this.deps.prisma.document.findMany({
+          where: { id: { in: docIds } },
+          select: { id: true, title: true },
+        })
+      : [];
+    const docById = new Map(docs.map((d) => [d.id, d]));
+
+    for (const object of objects) {
+      // A PROJECT object is its own group.
+      const project =
+        object.type === 'PROJECT'
+          ? { id: object.id, title: '' }
+          : (projectByObject.get(object.id) ?? null);
+      const source = object.sourceDocumentId
+        ? {
+            id: object.sourceDocumentId,
+            title: docById.get(object.sourceDocumentId)?.title ?? 'Document',
+          }
+        : null;
+      result.set(object.id, {
+        project: project && project.title === '' ? null : project,
+        source,
+      });
+    }
+    return result;
   }
 
   // ── Details ───────────────────────────────────────────────────

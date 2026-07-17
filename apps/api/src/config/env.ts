@@ -85,6 +85,20 @@ const envSchema = z.object({
   CONNECTOR_TASK_QUEUE: z.string().default('brain-connectors'),
   CONNECTOR_WORKER_HEALTH_URL: z.string().url().default('http://localhost:4101/health'),
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
+
+  // Phase 4 — Meeting Intelligence. The API starts/steers the durable meeting
+  // workflows and authenticates the bot's transcript callbacks. All timings
+  // fall back to the documented meeting-engine defaults when unset.
+  MEETING_TASK_QUEUE: z.string().default('brain-meetings'),
+  MEETING_WORKER_HEALTH_URL: z.string().url().default('http://localhost:4102/health'),
+  MEETING_BOT_URL: z.string().url().default('http://localhost:4200'),
+  // Shared secret the bot echoes on internal segment/status callbacks.
+  MEETING_INTERNAL_TOKEN: z.string().default('dev-meeting-internal-token'),
+  MEETING_LOOKAHEAD_SECONDS: z.coerce.number().int().positive().optional(),
+  MEETING_JOIN_LEAD_SECONDS: z.coerce.number().int().nonnegative().optional(),
+  MEETING_ADMISSION_TIMEOUT_SECONDS: z.coerce.number().int().positive().optional(),
+  MEETING_SILENCE_TIMEOUT_SECONDS: z.coerce.number().int().positive().optional(),
+  MEETING_MAX_SECONDS: z.coerce.number().int().positive().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

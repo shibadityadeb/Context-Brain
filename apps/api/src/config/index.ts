@@ -1,4 +1,14 @@
+import { resolveMeetingConfig } from '@company-brain/meeting-engine';
 import { env } from './env.js';
+
+// Documented defaults live in the meeting-engine package; env only overrides.
+const meetingDefaults = resolveMeetingConfig({
+  schedulerLookaheadSeconds: env.MEETING_LOOKAHEAD_SECONDS,
+  joinLeadSeconds: env.MEETING_JOIN_LEAD_SECONDS,
+  admissionTimeoutSeconds: env.MEETING_ADMISSION_TIMEOUT_SECONDS,
+  silenceTimeoutSeconds: env.MEETING_SILENCE_TIMEOUT_SECONDS,
+  maxMeetingSeconds: env.MEETING_MAX_SECONDS,
+});
 
 /**
  * Typed, domain-grouped configuration. Modules depend on the slice they
@@ -81,6 +91,17 @@ export const config = {
       baseUrl: env.LOCAL_LLM_URL,
     };
   })(),
+  meetings: {
+    taskQueue: env.MEETING_TASK_QUEUE,
+    workerHealthUrl: env.MEETING_WORKER_HEALTH_URL,
+    botUrl: env.MEETING_BOT_URL,
+    internalToken: env.MEETING_INTERNAL_TOKEN,
+    lookaheadSeconds: meetingDefaults.schedulerLookaheadSeconds,
+    joinLeadSeconds: meetingDefaults.joinLeadSeconds,
+    admissionTimeoutSeconds: meetingDefaults.admissionTimeoutSeconds,
+    silenceTimeoutSeconds: meetingDefaults.silenceTimeoutSeconds,
+    maxMeetingSeconds: meetingDefaults.maxMeetingSeconds,
+  },
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,
     workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,

@@ -12,10 +12,63 @@ import {
   CardHeader,
   CardTitle,
 } from '@company-brain/ui';
-import { api, type DocumentChunk, type KnowledgeDocument, type ProcessingStatus } from '@/lib/api';
+import {
+  api,
+  knowledgeGraphApi,
+  type DocumentChunk,
+  type KnowledgeDocument,
+  type KnowledgeObjectSummary,
+  type ProcessingStatus,
+} from '@/lib/api';
+import { useLiveRefresh } from '@/lib/use-live';
 import { StatusBadge, formatBytes, formatDate } from '@/components/knowledge/status-badge';
 
 const ACTIVE_STATUSES = new Set(['UPLOADED', 'PROCESSING', 'PENDING', 'RUNNING']);
+
+/** Friendly, pluralized section labels per entity type (one section each). */
+const TYPE_LABELS: Record<string, string> = {
+  PERSON: 'People',
+  TEAM: 'Teams',
+  PROJECT: 'Projects',
+  TASK: 'Tasks',
+  ACTION_ITEM: 'Action items',
+  BUG: 'Bugs',
+  ISSUE: 'Issues',
+  DECISION: 'Decisions',
+  FEATURE: 'Features',
+  REQUIREMENT: 'Requirements',
+  MEETING: 'Meetings',
+  RISK: 'Risks',
+  DEADLINE: 'Deadlines',
+  MILESTONE: 'Milestones',
+  QUESTION: 'Questions',
+  CUSTOMER: 'Customers',
+  VENDOR: 'Vendors',
+};
+// Stable display order; anything unlisted falls to the end alphabetically.
+const TYPE_ORDER = [
+  'PROJECT',
+  'BUG',
+  'ISSUE',
+  'TASK',
+  'ACTION_ITEM',
+  'DECISION',
+  'FEATURE',
+  'REQUIREMENT',
+  'RISK',
+  'DEADLINE',
+  'MILESTONE',
+  'PERSON',
+  'TEAM',
+  'MEETING',
+  'CUSTOMER',
+  'VENDOR',
+  'QUESTION',
+];
+
+function labelFor(type: string): string {
+  return TYPE_LABELS[type] ?? `${type.charAt(0)}${type.slice(1).toLowerCase()}s`.replace(/_/g, ' ');
+}
 
 export default function DocumentViewerPage() {
   const params = useParams<{ id: string }>();
@@ -25,6 +78,7 @@ export default function DocumentViewerPage() {
   const [doc, setDoc] = useState<KnowledgeDocument | null>(null);
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [chunks, setChunks] = useState<DocumentChunk[] | null>(null);
+  const [entities, setEntities] = useState<KnowledgeObjectSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -37,7 +91,12 @@ export default function DocumentViewerPage() {
       setDoc(document);
       setStatus(processing);
       if (document.status === 'READY') {
-        setChunks(await api.getDocumentChunks(documentId));
+        const [docChunks, extracted] = await Promise.all([
+          api.getDocumentChunks(documentId),
+          knowledgeGraphApi.listObjects({ documentId, pageSize: 200 }).catch(() => null),
+        ]);
+        setChunks(docChunks);
+        if (extracted) setEntities(extracted.objects);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load document');
@@ -47,6 +106,25 @@ export default function DocumentViewerPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Realtime: when this source finishes (re)processing, refresh in place.
+  useLiveRefresh(['knowledge.updated', 'memory.updated'], () => void load());
+
+  // One section per entity type — never repeat a "People"/"Tasks" heading.
+  const groups = (() => {
+    const byType = new Map<string, KnowledgeObjectSummary[]>();
+    for (const entity of entities) {
+      const list = byType.get(entity.type);
+      if (list) list.push(entity);
+      else byType.set(entity.type, [entity]);
+    }
+    return [...byType.entries()].sort((a, b) => {
+      const ia = TYPE_ORDER.indexOf(a[0]);
+      const ib = TYPE_ORDER.indexOf(b[0]);
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+      return a[0].localeCompare(b[0]);
+    });
+  })();
 
   // Poll while the ingestion pipeline is running.
   useEffect(() => {
@@ -221,6 +299,40 @@ export default function DocumentViewerPage() {
           </CardContent>
         </Card>
       </div>
+
+      {entities.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Knowledge extracted</CardTitle>
+            <CardDescription>
+              {entities.length} entit{entities.length === 1 ? 'y' : 'ies'} across {groups.length}{' '}
+              categor{groups.length === 1 ? 'y' : 'ies'} — everything this source contributed to the
+              Company Brain.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {groups.map(([type, list]) => (
+              <div key={type}>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {labelFor(type)} · {list.length}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {list.map((entity) => (
+                    <Link
+                      key={entity.id}
+                      href={`/brain/entity/${entity.id}`}
+                      className="max-w-full truncate rounded-md border px-2.5 py-1 text-sm hover:bg-accent"
+                      title={entity.summary ?? entity.title}
+                    >
+                      {entity.title}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

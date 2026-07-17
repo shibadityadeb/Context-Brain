@@ -25,9 +25,33 @@ export const EVENT_TYPES = [
   'resource.email.received',
   'resource.calendar.updated',
   'resource.permission.changed',
+  // Relationship Engine (Phase 5) — knowledge-graph edge deltas. Not tied to a
+  // connector, so connectorId/provider are optional on these.
+  'relationship.created',
+  'relationship.updated',
+  'relationship.deleted',
+  'relationship.merged',
+  'relationship.inferred',
+  // Pipeline sync signals — the whole Company Brain finished (re)processing a
+  // source. The web subscribes to these to auto-refresh affected views.
+  'knowledge.updated',
+  'memory.updated',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
+
+/** Payload carried by `relationship.*` events. */
+export interface RelationshipEventPayload {
+  relationshipId: string;
+  fromId: string;
+  toId: string;
+  relationshipType: string;
+  confidence: number;
+  isInferred: boolean;
+  /** For merges: the id the edge was merged into. */
+  mergedIntoId?: string;
+  [key: string]: unknown;
+}
 
 export interface ResourceRef {
   externalId: string;
@@ -42,8 +66,9 @@ export interface PlatformEvent<TPayload = Record<string, unknown>> {
   /** ISO timestamp of emission. */
   occurredAt: string;
   organizationId: string;
-  connectorId: string;
-  provider: string;
+  /** Connector-scoped events set these; platform events (e.g. graph) may omit. */
+  connectorId?: string;
+  provider?: string;
   resource?: ResourceRef;
   payload?: TPayload;
 }

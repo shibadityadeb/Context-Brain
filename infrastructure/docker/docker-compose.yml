@@ -129,6 +129,38 @@ services:
     ports:
       - '8080:8080'
 
+  # Meeting capture bot (Linux-only: Chromium + PulseAudio + ffmpeg +
+  # whisper.cpp). Behind the "bot" profile so the default `infra:up` doesn't
+  # build the heavy whisper image. Start with:
+  #   docker compose --profile bot up -d meeting-bot
+  # The meeting-worker must reach it at localhost:4200, and pass a callback
+  # base URL the container can reach back on (host.docker.internal). Set
+  # API_BASE_URL=http://host.docker.internal:4000 on the meeting-worker.
+  meeting-bot:
+    build:
+      context: ../../services/meeting-bot
+    container_name: brain-meeting-bot
+    restart: unless-stopped
+    profiles: ['bot']
+    environment:
+      MEETING_INTERNAL_TOKEN: ${MEETING_INTERNAL_TOKEN:-dev-meeting-internal-token}
+      MEETING_WHISPER_MODEL: ${MEETING_WHISPER_MODEL:-base.en}
+      BOT_CAPTURE_WINDOW_SECONDS: ${BOT_CAPTURE_WINDOW_SECONDS:-12}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+    ports:
+      - '4200:4200'
+    # Chromium needs more shared memory than the 64 MB default.
+    shm_size: '1gb'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4200/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 volumes:
   postgres_data:
   redis_data:

@@ -61,6 +61,22 @@ export type {
 } from './connector-contract.js';
 
 export {
+  meetingLifecycleWorkflow,
+  meetingSchedulerWorkflow,
+  type MeetingLifecycleInput,
+  type MeetingLifecycleResult,
+  type MeetingSchedulerInput,
+  type MeetingSchedulerResult,
+} from './workflows/meeting.workflow.js';
+
+export {
+  graphInferenceWorkflow,
+  graphRebuildWorkflow,
+  type GraphInferenceInput,
+  type GraphInferenceResult,
+} from './workflows/graph.workflow.js';
+
+export {
   skipDelaySignal,
   getStatusQuery,
   getReportQuery,
@@ -68,10 +84,16 @@ export {
   getSyncProgressQuery,
   getKnowledgeProgressQuery,
   getMemoryProgressQuery,
+  getMeetingProgressQuery,
+  meetingSegmentsSignal,
+  meetingAdmittedSignal,
+  meetingEndedSignal,
   type IngestionProgress,
   type ConnectorSyncProgress,
   type KnowledgeProgress,
   type MemoryProgress,
+  type MeetingProgress,
+  type MeetingSegmentInput,
 } from './definitions.js';
 export { TASK_QUEUES, WORKFLOW_TYPES, type TaskQueue, type WorkflowType } from './constants.js';
 export { DEFAULT_RETRY_POLICY, QUICK_RETRY_POLICY } from './retry-policies.js';
