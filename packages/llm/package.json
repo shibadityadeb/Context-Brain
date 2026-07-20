@@ -1,5 +1,5 @@
 {
-  "name": "@company-brain/knowledge-engine",
+  "name": "@company-brain/llm",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,11 +13,6 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.111.0",
-    "@company-brain/llm": "workspace:*",
-    "zod": "^3.24.3"
   },
   "devDependencies": {
     "@company-brain/config": "workspace:*",

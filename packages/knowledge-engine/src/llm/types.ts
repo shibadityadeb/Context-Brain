@@ -13,7 +13,7 @@ export interface LLMProvider {
   complete(input: { system: string; prompt: string }): Promise<string>;
 }
 
-export type LLMProviderName = 'anthropic' | 'openai' | 'gemini' | 'local' | 'mock';
+export type LLMProviderName = 'codex' | 'anthropic' | 'openai' | 'gemini' | 'local' | 'mock';
 
 export interface LLMConfig {
   provider: LLMProviderName;
