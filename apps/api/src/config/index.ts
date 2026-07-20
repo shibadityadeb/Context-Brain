@@ -76,8 +76,9 @@ export const config = {
   // Conversational answers (Ask Brain). Reuses the extraction provider/key
   // by default so one LLM configuration powers the whole brain.
   llm: (() => {
-    const provider = env.ANSWER_PROVIDER ?? env.EXTRACTION_PROVIDER ?? 'gemini';
+    const provider = env.ANSWER_PROVIDER ?? env.EXTRACTION_PROVIDER ?? 'codex';
     const apiKey = {
+      codex: undefined,
       anthropic: env.ANTHROPIC_API_KEY,
       openai: env.OPENAI_API_KEY,
       gemini: env.GEMINI_API_KEY,

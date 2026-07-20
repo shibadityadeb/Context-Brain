@@ -248,8 +248,15 @@ export function createKnowledgeActivities(ctx: KnowledgeActivityContext) {
         throw ApplicationFailure.nonRetryable('Chunker produced no chunks', 'NoChunks');
       }
 
+      // Replace the document's ENTIRE chunk set — every prior version, not
+      // just this one. Re-ingestion creates a new DocumentVersion, so deleting
+      // by versionId alone left the previous version's chunks alive. The
+      // knowledge engine reads chunks by documentId, so those stale chunks made
+      // extraction re-derive outdated knowledge after every edit (Sources read
+      // by versionId, which is why only Sources looked correct). Clearing by
+      // documentId keeps a single live version and makes reprocessing idempotent.
       await prisma.$transaction([
-        prisma.chunk.deleteMany({ where: { versionId: version.id } }),
+        prisma.chunk.deleteMany({ where: { documentId: document.id } }),
         prisma.chunk.createMany({
           data: chunks.map((chunk) => ({
             index: chunk.index,

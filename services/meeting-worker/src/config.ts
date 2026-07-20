@@ -46,10 +46,12 @@ const envSchema = z.object({
 
   // Meeting transcript extraction LLM. Spec: Gemini Flash (free tier). Falls
   // back to the shared EXTRACTION_PROVIDER when a meeting-specific one is unset.
-  EXTRACTION_PROVIDER: z.enum(['anthropic', 'openai', 'gemini', 'local', 'mock']).optional(),
+  EXTRACTION_PROVIDER: z
+    .enum(['codex', 'anthropic', 'openai', 'gemini', 'local', 'mock'])
+    .optional(),
   EXTRACTION_MODEL: z.string().optional(),
   MEETING_EXTRACTION_PROVIDER: z
-    .enum(['anthropic', 'openai', 'gemini', 'local', 'mock'])
+    .enum(['codex', 'anthropic', 'openai', 'gemini', 'local', 'mock'])
     .optional(),
   MEETING_EXTRACTION_MODEL: z.string().optional(),
 
@@ -153,6 +155,7 @@ const memoryTuning: MemoryTuning = resolveMemoryTuning({
 // Meeting extraction provider: meeting-specific override → shared → gemini.
 const extractionProvider = env.MEETING_EXTRACTION_PROVIDER ?? env.EXTRACTION_PROVIDER ?? 'gemini';
 const extractionApiKey = {
+  codex: undefined,
   anthropic: env.ANTHROPIC_API_KEY,
   openai: env.OPENAI_API_KEY,
   gemini: env.GEMINI_API_KEY,

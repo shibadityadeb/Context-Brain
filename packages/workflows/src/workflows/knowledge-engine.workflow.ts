@@ -107,10 +107,17 @@ export async function knowledgeExtractionWorkflow(
   setHandler(getKnowledgeProgressQuery, () => progress);
 
   try {
+    log.info('knowledge extraction started', { documentId: input.documentId });
     const extractStats = await extraction.extractDocumentKnowledge(input);
     progress.entitiesCreated = extractStats.objectsCreated;
     progress.entitiesUpdated = extractStats.objectsUpdated;
     progress.relationshipsBuilt = extractStats.relationships;
+    log.info('entity merge completed', {
+      documentId: input.documentId,
+      created: extractStats.objectsCreated,
+      updated: extractStats.objectsUpdated,
+      removed: extractStats.objectsRemoved,
+    });
 
     progress.stage = 'RELATIONSHIPS';
     const relationshipStats = await executeChild(relationshipWorkflow, {
@@ -118,6 +125,10 @@ export async function knowledgeExtractionWorkflow(
       workflowId: `${workflowId}-relationships`,
     });
     progress.relationshipsBuilt += relationshipStats.relationshipsCreated;
+    log.info('relationships updated', {
+      documentId: input.documentId,
+      relationships: progress.relationshipsBuilt,
+    });
 
     progress.stage = 'DEDUPLICATE';
     const dedupStats = await executeChild(deduplicationWorkflow, {
@@ -132,6 +143,10 @@ export async function knowledgeExtractionWorkflow(
       workflowId: `${workflowId}-timeline`,
     });
     progress.timelineEvents = timelineStats.eventsCreated;
+    log.info('timeline updated', {
+      documentId: input.documentId,
+      events: timelineStats.eventsCreated,
+    });
 
     progress.stage = 'EMBED';
     const embedStats = await executeChild(knowledgeEmbeddingWorkflow, {
@@ -164,6 +179,13 @@ export async function knowledgeExtractionWorkflow(
         embedded: embedStats.embedded,
       },
     });
+    // finalizeKnowledgeRun publishes the knowledge.updated realtime event.
+    log.info('knowledge extraction completed — realtime event emitted', {
+      documentId: input.documentId,
+      entitiesCreated: progress.entitiesCreated,
+      entitiesUpdated: progress.entitiesUpdated,
+      relationshipsBuilt: progress.relationshipsBuilt,
+    });
 
     // MEMORY — fold the freshly-extracted knowledge into evolving memory so
     // tasks/people/decisions/deadlines stay in sync. Detached child: the
@@ -176,6 +198,7 @@ export async function knowledgeExtractionWorkflow(
           workflowId: `${workflowId}-memory`,
           parentClosePolicy: ParentClosePolicy.ABANDON,
         });
+        log.info('memory update queued', { documentId: input.documentId, organizationId });
       }
     } catch (error) {
       log.warn('failed to start memory update workflow', {

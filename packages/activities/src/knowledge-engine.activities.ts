@@ -33,6 +33,8 @@ export interface ExtractStats {
   chunksDegraded: number;
   objectsCreated: number;
   objectsUpdated: number;
+  /** Entities pruned because they vanished from their only source document. */
+  objectsRemoved: number;
   mentions: number;
   relationships: number;
 }
@@ -73,6 +75,34 @@ export function knowledgeCollectionForOrganization(organizationId: string): stri
 const MAX_CHUNKS_PER_DOCUMENT = 25;
 /** Merge threshold — stricter than first-pass resolution. */
 const MERGE_SIMILARITY_THRESHOLD = 0.92;
+/**
+ * How many independent per-chunk LLM extractions to run in parallel. The LLM
+ * call (e.g. the Codex CLI) is the pipeline's dominant cost, so parallelizing
+ * it collapses a multi-minute document from N×(seconds) to ~ceil(N/C). Env
+ * override keeps it tunable per backend (raise for local models, lower to be
+ * gentle on rate-limited hosted APIs).
+ */
+const EXTRACTION_CONCURRENCY = Math.max(1, Number(process.env.EXTRACTION_CONCURRENCY ?? 4));
+
+/** Map with a cap on concurrent async operations; preserves input order. */
+async function mapWithLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await fn(items[index] as T);
+    }
+  };
+  const width = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(Array.from({ length: width }, worker));
+  return results;
+}
 
 /**
  * Derive a Project name for a source document — its first heading, else a
@@ -370,10 +400,30 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
      */
     async extractDocumentKnowledge(input: KnowledgeRunInput): Promise<ExtractStats> {
       const document = await requireDocument(input.documentId);
+
+      // Read ONLY the current version's chunks. Re-ingestion creates a new
+      // DocumentVersion; reading by documentId alone would mix in stale
+      // prior-version chunks and re-derive outdated knowledge — the root cause
+      // of "derived knowledge never updates after an edit".
+      const latestVersion = await prisma.documentVersion.findFirst({
+        where: { documentId: document.id },
+        orderBy: { version: 'desc' },
+        select: { id: true, version: true },
+      });
       const chunks = await prisma.chunk.findMany({
-        where: { documentId: document.id, deletedAt: null },
+        where: {
+          documentId: document.id,
+          deletedAt: null,
+          ...(latestVersion ? { versionId: latestVersion.id } : {}),
+        },
         orderBy: { index: 'asc' },
         take: MAX_CHUNKS_PER_DOCUMENT,
+      });
+
+      log.info('knowledge extraction started', {
+        documentId: document.id,
+        version: latestVersion?.version ?? null,
+        chunks: chunks.length,
       });
 
       const stats: ExtractStats = {
@@ -382,71 +432,113 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
         chunksDegraded: 0,
         objectsCreated: 0,
         objectsUpdated: 0,
+        objectsRemoved: 0,
         mentions: 0,
         relationships: 0,
       };
 
-      // Once the LLM proves unavailable (rate-limit/quota/auth), stop hammering
-      // it and extract the rest of the document with the rule-based fallback —
-      // conserves the free-tier quota and keeps the run moving.
-      let llmHealthy = true;
+      // Idempotent reprocessing: drop this document's previous per-document
+      // artifacts up front so mentions/references reflect ONLY the current
+      // content instead of accumulating on every edit. The KnowledgeObjects
+      // themselves are kept and re-resolved (UPSERT) below — never duplicated.
+      const priorObjectIds = (
+        await prisma.entityMention.findMany({
+          where: { documentId: document.id },
+          select: { objectId: true },
+          distinct: ['objectId'],
+        })
+      ).map((m) => m.objectId);
+      await prisma.$transaction([
+        prisma.entityMention.deleteMany({ where: { documentId: document.id } }),
+        prisma.knowledgeReference.deleteMany({
+          where: { documentId: document.id, kind: 'chunk' },
+        }),
+      ]);
 
-      for (const chunk of chunks) {
-        const input = {
-          text: chunk.content.slice(0, 8000),
-          heading: chunk.heading,
-          source: {
-            documentTitle: document.title,
-            fileName: document.fileName,
-            mimeType: document.mimeType,
-          },
-        };
-
-        let extraction: ExtractionResult | null = null;
-        if (llmHealthy) {
+      // The per-chunk LLM call (e.g. `codex exec`) dominates latency — tens of
+      // seconds each — and the chunks are independent, so run them with bounded
+      // concurrency. A chunk whose provider call fails falls back to the
+      // deterministic extractor rather than dropping content. PERSISTENCE is
+      // kept strictly sequential (below) because entity resolution against the
+      // store must be serialized or concurrent chunks would create duplicates.
+      type ChunkOutcome = {
+        chunk: (typeof chunks)[number];
+        extraction: ExtractionResult | null;
+        degraded: boolean;
+      };
+      const outcomes = await mapWithLimit(
+        chunks,
+        EXTRACTION_CONCURRENCY,
+        async (chunk): Promise<ChunkOutcome> => {
+          const input = {
+            text: chunk.content.slice(0, 8000),
+            heading: chunk.heading,
+            source: {
+              documentTitle: document.title,
+              fileName: document.fileName,
+              mimeType: document.mimeType,
+            },
+          };
           try {
-            extraction = await extractKnowledge(llm, input);
+            return { chunk, extraction: await extractKnowledge(llm, input), degraded: false };
           } catch (error) {
             if (error instanceof ExtractionValidationError) {
-              // Model produced unparseable output for this chunk — skip it.
-              stats.chunksFailed += 1;
               log.warn('chunk extraction failed validation', {
                 documentId: document.id,
                 chunkId: chunk.id,
                 issues: error.issues.slice(0, 5),
               });
-              continue;
+              return { chunk, extraction: null, degraded: false };
             }
-            // Provider unavailable (rate limit / quota / bad key) → degrade the
-            // rest of this document to the deterministic extractor.
-            llmHealthy = false;
-            log.warn('LLM extraction unavailable — degrading to rule-based extractor', {
-              documentId: document.id,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-
-        if (!extraction) {
-          try {
-            extraction = await extractKnowledge(fallbackLlm, input);
-            stats.chunksDegraded += 1;
-          } catch (error) {
-            stats.chunksFailed += 1;
-            log.warn('fallback extraction failed', {
+            // Provider unavailable for this chunk → deterministic fallback so the
+            // document still yields knowledge instead of losing that content.
+            log.warn('LLM extraction unavailable — using rule-based fallback', {
               documentId: document.id,
               chunkId: chunk.id,
               error: error instanceof Error ? error.message : String(error),
             });
-            continue;
+            try {
+              return {
+                chunk,
+                extraction: await extractKnowledge(fallbackLlm, input),
+                degraded: true,
+              };
+            } catch (fallbackError) {
+              log.warn('fallback extraction failed', {
+                documentId: document.id,
+                chunkId: chunk.id,
+                error:
+                  fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+              });
+              return { chunk, extraction: null, degraded: false };
+            }
           }
-        }
+        },
+      );
 
+      // Persist sequentially — resolveAgainstStore + UPSERT must not race.
+      for (const { chunk, extraction, degraded } of outcomes) {
+        if (!extraction) {
+          stats.chunksFailed += 1;
+          continue;
+        }
+        if (degraded) stats.chunksDegraded += 1;
         await persistExtraction(document, chunk, extraction, stats);
         stats.chunksProcessed += 1;
       }
 
-      log.info('knowledge extraction complete', { documentId: document.id, ...stats });
+      // Remove entities that originated ONLY from this document and no longer
+      // appear in it. Guarded to a clean, fully-healthy run so a degraded or
+      // partial extraction can never delete real knowledge.
+      if (stats.chunksProcessed > 0 && stats.chunksFailed === 0 && stats.chunksDegraded === 0) {
+        stats.objectsRemoved = await pruneVanishedObjects(
+          document.id,
+          document.organizationId,
+          priorObjectIds,
+        );
+      }
+
+      log.info('knowledge extraction completed', { documentId: document.id, ...stats });
       return stats;
     },
 
@@ -752,6 +844,76 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
       return { organizationId: document?.organizationId ?? null };
     },
   };
+
+  /**
+   * Soft-delete entities that were previously extracted from this document,
+   * no longer appear in it, and are mentioned by no other document — i.e. they
+   * originated only from this source and have now vanished. System nodes
+   * (DOCUMENT / PROJECT) and cross-document entities are preserved. Their edges
+   * are soft-deleted too so the graph doesn't keep dangling relationships.
+   */
+  async function pruneVanishedObjects(
+    documentId: string,
+    organizationId: string,
+    priorObjectIds: string[],
+  ): Promise<number> {
+    if (priorObjectIds.length === 0) return 0;
+
+    const stillMentioned = new Set(
+      (
+        await prisma.entityMention.findMany({
+          where: { documentId, objectId: { in: priorObjectIds } },
+          select: { objectId: true },
+          distinct: ['objectId'],
+        })
+      ).map((m) => m.objectId),
+    );
+
+    const now = new Date();
+    let removed = 0;
+    for (const objectId of priorObjectIds) {
+      if (stillMentioned.has(objectId)) continue; // still in the current doc
+
+      const object = await prisma.knowledgeObject.findFirst({
+        where: { id: objectId, deletedAt: null, sourceDocumentId: documentId },
+        select: { id: true, type: true, title: true, createdBy: true },
+      });
+      // Skip if it originated elsewhere, is a system/source node, or is gone.
+      if (!object) continue;
+      if (object.type === 'DOCUMENT' || object.type === 'PROJECT') continue;
+      if (!object.createdBy?.startsWith('extraction:')) continue;
+
+      // Mentioned by any other document? Then it's not "only from this source".
+      const remainingMentions = await prisma.entityMention.count({ where: { objectId } });
+      if (remainingMentions > 0) continue;
+
+      await prisma.$transaction([
+        prisma.knowledgeRelationship.updateMany({
+          where: { OR: [{ fromId: objectId }, { toId: objectId }], deletedAt: null },
+          data: { deletedAt: now },
+        }),
+        prisma.knowledgeObject.update({
+          where: { id: objectId },
+          data: { deletedAt: now, version: { increment: 1 } },
+        }),
+        prisma.timelineEvent.create({
+          data: {
+            objectId,
+            type: 'DELETED',
+            title: `Removed — no longer present in "${object.title}" source`,
+            documentId,
+            actor: 'extraction:prune',
+            organizationId,
+          },
+        }),
+      ]);
+      removed += 1;
+    }
+    if (removed > 0) {
+      log.info('entity prune completed', { documentId, removed });
+    }
+    return removed;
+  }
 
   /** Move everything from `loserId` onto `survivorId`, then soft-delete. */
   async function mergeObjects(

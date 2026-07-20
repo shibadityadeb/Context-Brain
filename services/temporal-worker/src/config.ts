@@ -46,8 +46,8 @@ const envSchema = z.object({
 
   // Phase 2 — knowledge extraction LLM (provider-agnostic).
   EXTRACTION_PROVIDER: z
-    .enum(['anthropic', 'openai', 'gemini', 'local', 'mock'])
-    .default('anthropic'),
+    .enum(['codex', 'anthropic', 'openai', 'gemini', 'local', 'mock'])
+    .default('codex'),
   EXTRACTION_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   LOCAL_LLM_URL: z.string().optional(),
@@ -178,6 +178,7 @@ export const config = {
     provider: env.EXTRACTION_PROVIDER,
     model: env.EXTRACTION_MODEL,
     apiKey: {
+      codex: undefined,
       anthropic: env.ANTHROPIC_API_KEY,
       openai: env.OPENAI_API_KEY,
       gemini: env.GEMINI_API_KEY,

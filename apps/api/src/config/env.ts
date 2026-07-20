@@ -64,9 +64,11 @@ const envSchema = z.object({
 
   // Conversational answers (Ask Brain). Reuses the same provider/model as
   // knowledge extraction so one key powers the whole brain.
-  EXTRACTION_PROVIDER: z.enum(['anthropic', 'openai', 'gemini', 'local', 'mock']).optional(),
+  EXTRACTION_PROVIDER: z
+    .enum(['codex', 'anthropic', 'openai', 'gemini', 'local', 'mock'])
+    .optional(),
   EXTRACTION_MODEL: z.string().optional(),
-  ANSWER_PROVIDER: z.enum(['anthropic', 'openai', 'gemini', 'local', 'mock']).optional(),
+  ANSWER_PROVIDER: z.enum(['codex', 'anthropic', 'openai', 'gemini', 'local', 'mock']).optional(),
   ANSWER_MODEL: z.string().optional(),
   LOCAL_LLM_URL: z.string().optional(),
 
