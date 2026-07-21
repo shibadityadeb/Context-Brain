@@ -31,3 +31,6 @@ apps/api/prisma/generated/
 
 # docker
 infrastructure/docker/volumes/
+
+# meeting bot runtime artifacts (chrome profile + recordings)
+.meeting-bot/
