@@ -1,0 +1,7 @@
+{
+  "extends": "@company-brain/config/tsconfig/node",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src"]
+}
