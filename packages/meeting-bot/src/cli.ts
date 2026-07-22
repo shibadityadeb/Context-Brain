@@ -1,8 +1,17 @@
+import { resolve } from 'node:path';
+import { config as loadDotenv } from 'dotenv';
 import { createCalendarBot, createMeetingBot, loadConfig } from './index.js';
 import { MeetingScheduler } from './scheduler/scheduler.js';
 import { createLogger, type Logger } from './utils/logger.js';
 import type { MeetingBot } from './meeting-bot.js';
 import type { MeetingJob } from './types/index.js';
+
+// CLI-only concern: the library itself stays env-loading-free so embedders
+// (README: "real deployments embed the library") control their own env.
+// Mirrors services/meeting-worker's convention: package-local .env first,
+// then the monorepo root .env as a fallback.
+loadDotenv({ path: resolve(process.cwd(), '.env') });
+loadDotenv({ path: resolve(process.cwd(), '../../.env') });
 
 /**
  * Minimal CLI with two modes:

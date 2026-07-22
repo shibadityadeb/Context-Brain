@@ -2024,3 +2024,223 @@ model MeetingMemory {
   @@index([memoryId])
   @@map("meeting_memories")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recall.ai meeting ingestion (Phase 5+).
+//
+// A provider-agnostic capture pipeline: a Recall.ai bot joins the meeting and
+// Recall delivers lifecycle / recording / transcript webhooks, which we
+// normalize and persist here. These tables are deliberately SEPARATE from the
+// Phase-4 `meetings`/`transcript_chunks` schema (which is Temporal + whisper +
+// LLM-oriented) so the two capture pipelines stay decoupled. No LLM /
+// embedding / knowledge-graph concerns live here — only raw + normalized
+// ingestion, ready for the Context Brain in a later stage.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum RecallMeetingStatus {
+  SCHEDULED // bot created with a future join_at
+  JOINING // bot is connecting to the call
+  WAITING // bot is in the waiting room / lobby
+  IN_CALL // admitted, not yet recording
+  RECORDING // actively recording
+  DONE // call ended, media available
+  FAILED // bot hit a fatal error / was denied
+}
+
+enum RecordingStatus {
+  PENDING // recording announced, not yet complete
+  DONE // recording.done received
+  FAILED // recording.failed received
+}
+
+enum TranscriptStatus {
+  PENDING // awaiting transcript.done
+  DONE // transcript fetched + normalized
+  FAILED // transcript.failed received
+}
+
+enum WebhookEventStatus {
+  RECEIVED // stored, not yet processed
+  PROCESSED // handled successfully
+  FAILED // handler threw; kept for inspection / retry
+}
+
+/// One meeting captured via a Recall.ai bot. `recallBotId` is Recall's bot id
+/// and the stable external key. `organizationId` is carried through Recall's
+/// bot `metadata` (set at bot-creation time) so ingestion stays multi-tenant;
+/// it is nullable because a webhook may arrive before/without that metadata.
+model RecallMeeting {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Recall's bot id — the external identity + idempotency anchor for a meeting.
+  recallBotId String @unique
+
+  // Set from the Recall bot `metadata` we attach at creation time.
+  organizationId String? @db.Uuid
+  // Our own upstream meeting id (e.g. calendar-derived), when provided.
+  externalMeetingId String?
+
+  provider   String              @default("recall")
+  meetingUrl String?
+  botName    String?
+  platform   String? // "google_meet" | "zoom" | "teams" | …
+  status     RecallMeetingStatus @default(SCHEDULED)
+
+  scheduledStart DateTime?
+  joinedAt       DateTime?
+  endedAt        DateTime?
+
+  // Last error surfaced by a bot.fatal / *.failed event.
+  error String?
+
+  // Full raw payload of the most recent bot lifecycle webhook, for audit.
+  rawMetadata Json?
+
+  participants RecallParticipant[]
+  recordings   Recording[]
+  transcript   RecallTranscript?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, status])
+  @@index([externalMeetingId])
+  @@map("recall_meetings")
+}
+
+/// A participant observed in the call. Attendance window is preserved when
+/// Recall reports join/leave events.
+model RecallParticipant {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String        @db.Uuid
+  meeting   RecallMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Recall's participant id within the call, when available.
+  platformId String?
+  name       String
+  isHost     Boolean @default(false)
+
+  joinedAt DateTime?
+  leftAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A participant is unique per meeting by Recall id (falls back to name).
+  @@unique([meetingId, platformId])
+  @@index([meetingId])
+  @@map("recall_participants")
+}
+
+/// Recording metadata for a meeting. We store the media reference + timing;
+/// the media bytes themselves stay in Recall until downloaded downstream.
+model Recording {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String        @db.Uuid
+  meeting   RecallMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Recall's recording id — the external key + idempotency anchor.
+  recallRecordingId String          @unique
+  status            RecordingStatus @default(PENDING)
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  // Signed media URL + when it expires (Recall URLs are short-lived).
+  mediaUrl        String?
+  mediaExpiresAt  DateTime?
+  durationSeconds Int?
+
+  // Full raw recording.done / recording.failed payload.
+  rawPayload Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([meetingId])
+  @@map("recall_recordings")
+}
+
+/// The normalized, merged transcript for a meeting (one per meeting). Holds
+/// the chronological plain-text render plus the raw Recall transcript payload,
+/// with individual segments in `TranscriptSegment`.
+model RecallTranscript {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String        @unique @db.Uuid
+  meeting   RecallMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // Recall's transcript id, when the event carries one.
+  recallTranscriptId String?
+  status             TranscriptStatus @default(PENDING)
+  provider           String? // "meeting_captions" | "assembly_ai_async_chunked" | …
+
+  // Whole-transcript conveniences kept in sync on merge, so readers never
+  // have to re-assemble segments.
+  mergedText  String? @db.Text
+  segmentCount Int    @default(0)
+  // Total speech span in milliseconds (last endMs − first startMs).
+  durationMs  Int?
+
+  // The untouched Recall transcript JSON, preserved alongside the normalized form.
+  rawPayload Json?
+
+  segments TranscriptSegment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("recall_transcripts")
+}
+
+/// A single normalized transcript segment, ordered by `index` and timestamped
+/// in milliseconds from capture start. Speaker attribution is preserved when
+/// Recall provides it.
+model TranscriptSegment {
+  id String @id @default(uuid()) @db.Uuid
+
+  transcriptId String           @db.Uuid
+  transcript   RecallTranscript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  index   Int
+  startMs Int
+  endMs   Int
+  text    String @db.Text
+
+  // Speaker display name / diarization label, when available.
+  speaker    String?
+  confidence Float?
+
+  createdAt DateTime @default(now())
+
+  @@unique([transcriptId, index])
+  @@index([transcriptId, startMs])
+  @@map("recall_transcript_segments")
+}
+
+/// Idempotency + audit ledger for inbound Recall webhooks. `eventId` is the
+/// Svix `webhook-id` header (globally unique per delivery); the unique
+/// constraint makes duplicate deliveries a no-op.
+model WebhookEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Svix webhook-id (or svix-id) header — the delivery's unique id.
+  eventId   String             @unique
+  eventType String
+  status    WebhookEventStatus @default(RECEIVED)
+
+  // The bot this event concerns, for correlation (nullable for non-bot events).
+  recallBotId String?
+
+  payload Json
+  error   String?
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([eventType])
+  @@index([recallBotId])
+  @@map("recall_webhook_events")
+}
