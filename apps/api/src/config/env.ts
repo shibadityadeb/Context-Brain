@@ -101,6 +101,41 @@ const envSchema = z.object({
   MEETING_ADMISSION_TIMEOUT_SECONDS: z.coerce.number().int().positive().optional(),
   MEETING_SILENCE_TIMEOUT_SECONDS: z.coerce.number().int().positive().optional(),
   MEETING_MAX_SECONDS: z.coerce.number().int().positive().optional(),
+
+  // Recall.ai — the provider-agnostic meeting capture pipeline. The bot joins
+  // via Recall's API and Recall delivers lifecycle/recording/transcript
+  // webhooks we ingest. All values are optional so the API boots without Recall
+  // configured; the webhook route fails closed if the secret is missing.
+  // RECALL_API_KEY is accepted as an alias of RECALLAI_KEY (the alias wins).
+  RECALLAI_KEY: z.string().optional().default(''),
+  RECALL_API_KEY: z.string().optional().default(''),
+  RECALL_REGION: z
+    .enum(['us-east-1', 'us-west-2', 'eu-central-1', 'ap-northeast-1'])
+    .default('us-east-1'),
+  // Overrides the region-derived base URL (e.g. for a mock server in tests).
+  RECALL_API_BASE_URL: z.string().url().optional(),
+  // Svix signing secret (whsec_…) used to verify inbound webhook signatures.
+  RECALL_WEBHOOK_SECRET: z.string().optional().default(''),
+  RECALL_BOT_NAME: z.string().default('Company Brain Notetaker'),
+  // Audio-based async transcription by default — reliable regardless of whether
+  // the meeting has live captions on. `meeting_captions` (free, Meet CC) often
+  // yields empty transcripts, so it's opt-in only.
+  RECALL_TRANSCRIPT_PROVIDER: z.string().default('recallai_streaming'),
+  // Exponential-backoff retry for transient (5xx / network) bot API failures.
+  RECALL_CREATE_RETRY_ATTEMPTS: z.coerce.number().int().nonnegative().default(3),
+  RECALL_CREATE_RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(500),
+
+  // Recall bot dispatch scheduler. Off by default: creating bots is
+  // outward-facing and metered, so it must be enabled deliberately.
+  RECALL_SCHEDULER_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Reconciliation cadence + how far ahead to pre-create scheduled bots.
+  RECALL_SCHEDULER_POLL_SECONDS: z.coerce.number().int().positive().default(60),
+  RECALL_SCHEDULER_LOOKAHEAD_MINUTES: z.coerce.number().int().positive().default(60),
+  // Minutes before scheduled start the bot should join (join_at = start − this).
+  BOT_JOIN_OFFSET_MINUTES: z.coerce.number().int().nonnegative().default(2),
 });
 
 const parsed = envSchema.safeParse(process.env);

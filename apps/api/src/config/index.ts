@@ -103,6 +103,26 @@ export const config = {
     silenceTimeoutSeconds: meetingDefaults.silenceTimeoutSeconds,
     maxMeetingSeconds: meetingDefaults.maxMeetingSeconds,
   },
+  // Recall.ai capture pipeline. `regionBaseUrl` is the region-derived API host
+  // unless RECALL_API_BASE_URL overrides it (tests / self-hosted proxies).
+  recall: {
+    apiKey: env.RECALL_API_KEY || env.RECALLAI_KEY || undefined,
+    region: env.RECALL_REGION,
+    baseUrl: env.RECALL_API_BASE_URL ?? `https://${env.RECALL_REGION}.recall.ai`,
+    webhookSecret: env.RECALL_WEBHOOK_SECRET || undefined,
+    botName: env.RECALL_BOT_NAME,
+    transcriptProvider: env.RECALL_TRANSCRIPT_PROVIDER,
+    retry: {
+      attempts: env.RECALL_CREATE_RETRY_ATTEMPTS,
+      backoffMs: env.RECALL_CREATE_RETRY_BACKOFF_MS,
+    },
+    scheduler: {
+      enabled: env.RECALL_SCHEDULER_ENABLED,
+      pollSeconds: env.RECALL_SCHEDULER_POLL_SECONDS,
+      lookaheadMinutes: env.RECALL_SCHEDULER_LOOKAHEAD_MINUTES,
+      joinOffsetMinutes: env.BOT_JOIN_OFFSET_MINUTES,
+    },
+  },
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,
     workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,

@@ -10,6 +10,7 @@ import securityPlugin from './plugins/security.js';
 import servicesPlugin from './plugins/services.js';
 import swaggerPlugin from './plugins/swagger.js';
 import websocketPlugin from './plugins/websocket.js';
+import recallSchedulerPlugin from './plugins/recall-scheduler.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import healthRoutes from './modules/health/health.routes.js';
 import userRoutes from './modules/users/user.routes.js';
@@ -20,6 +21,7 @@ import memoryRoutes from './modules/memory/memory.routes.js';
 import askRoutes from './modules/ask/ask.routes.js';
 import connectorRoutes from './modules/connectors/connector.routes.js';
 import meetingRoutes from './modules/meetings/meeting.routes.js';
+import recallRoutes from './modules/recall/recall.routes.js';
 import graphRoutes from './modules/graph/graph.routes.js';
 import liveRoutes from './modules/live/live.routes.js';
 import activityRoutes from './modules/activity/activity.routes.js';
@@ -59,6 +61,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(servicesPlugin);
   await app.register(swaggerPlugin);
   await app.register(websocketPlugin);
+  await app.register(recallSchedulerPlugin);
 
   // Modules.
   await app.register(healthRoutes);
@@ -71,6 +74,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(askRoutes, { prefix: '/api/v1/ask' });
   await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
   await app.register(meetingRoutes, { prefix: '/api/v1/meetings' });
+  await app.register(recallRoutes, { prefix: '/api/v1/recall' });
   await app.register(graphRoutes, { prefix: '/api/v1/graph' });
   await app.register(liveRoutes, { prefix: '/api/v1/live' });
   await app.register(activityRoutes, { prefix: '/api/v1/activity' });
