@@ -13,6 +13,7 @@ import type {
   NormalizedRecording,
   NormalizedTranscript,
   StoredMeeting,
+  StoredMeetingAnalysis,
   StoredParticipant,
   StoredRecording,
   StoredTranscript,
@@ -29,6 +30,7 @@ export interface MeetingDetail {
     segmentCount: number;
     durationMs: number | null;
   } | null;
+  analysis: StoredMeetingAnalysis | null;
 }
 
 /** Thrown when a read is scoped to an org the meeting doesn't belong to. */
@@ -107,10 +109,11 @@ export class MeetingIngestionService {
 
   async getMeeting(organizationId: string, id: string): Promise<MeetingDetail> {
     const meeting = await this.requireMeeting(organizationId, id);
-    const [participants, recordings, transcript] = await Promise.all([
+    const [participants, recordings, transcript, analysis] = await Promise.all([
       this.repos.participants.listByMeeting(meeting.id),
       this.repos.recordings.listByMeeting(meeting.id),
       this.repos.transcripts.getByMeeting(meeting.id),
+      this.repos.analyses.getByMeeting(meeting.id),
     ]);
     return {
       meeting,
@@ -124,7 +127,13 @@ export class MeetingIngestionService {
             durationMs: transcript.durationMs,
           }
         : null,
+      analysis,
     };
+  }
+
+  /** Resolve the stored meeting for a capture (bot) id, or null if unknown. */
+  async getMeetingByExternalId(externalId: string): Promise<StoredMeeting | null> {
+    return this.repos.meetings.findByExternalId(externalId);
   }
 
   async getParticipants(organizationId: string, id: string): Promise<StoredParticipant[]> {

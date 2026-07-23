@@ -206,6 +206,18 @@
       background-position: -200% 0;
     }
   }
+  /* Indeterminate progress sweep — a partial bar sliding across its track. */
+  .animate-progress-indeterminate {
+    animation: progress-indeterminate 1.1s ease-in-out infinite;
+  }
+  @keyframes progress-indeterminate {
+    0% {
+      transform: translateX(-130%);
+    }
+    100% {
+      transform: translateX(330%);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

@@ -121,11 +121,16 @@ export const config = {
       pollSeconds: env.RECALL_SCHEDULER_POLL_SECONDS,
       lookaheadMinutes: env.RECALL_SCHEDULER_LOOKAHEAD_MINUTES,
       joinOffsetMinutes: env.BOT_JOIN_OFFSET_MINUTES,
+      scheduledMinLeadMinutes: env.RECALL_SCHEDULED_MIN_LEAD_MINUTES,
     },
+  },
+  activity: {
+    extractionStaleMinutes: env.ACTIVITY_EXTRACTION_STALE_MINUTES,
   },
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,
     workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,
+    incrementalSyncMinutes: env.CONNECTOR_INCREMENTAL_SYNC_MINUTES,
     webAppUrl: env.WEB_APP_URL,
     // Refresh-token encryption; required as soon as a connector is used.
     tokenEncryptionKey: env.TOKEN_ENCRYPTION_KEY,

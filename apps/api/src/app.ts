@@ -11,6 +11,7 @@ import servicesPlugin from './plugins/services.js';
 import swaggerPlugin from './plugins/swagger.js';
 import websocketPlugin from './plugins/websocket.js';
 import recallSchedulerPlugin from './plugins/recall-scheduler.js';
+import connectorSchedulerPlugin from './plugins/connector-scheduler.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import healthRoutes from './modules/health/health.routes.js';
 import userRoutes from './modules/users/user.routes.js';
@@ -62,6 +63,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(swaggerPlugin);
   await app.register(websocketPlugin);
   await app.register(recallSchedulerPlugin);
+  await app.register(connectorSchedulerPlugin);
 
   // Modules.
   await app.register(healthRoutes);

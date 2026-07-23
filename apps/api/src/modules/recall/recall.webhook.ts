@@ -23,10 +23,22 @@ export interface WebhookLogger {
   debug(obj: unknown, msg?: string): void;
 }
 
+/** A meeting ready for Codex analysis, handed to {@link WebhookDeps.enqueueAnalysis}. */
+export interface AnalysisJobTarget {
+  meetingId: string;
+  organizationId: string | null;
+}
+
 export interface WebhookDeps {
   service: MeetingIngestionService;
   client: RecallClient | null;
   logger: WebhookLogger;
+  /**
+   * Persist a pending-analysis marker and enqueue the background Codex job.
+   * Optional so tests / minimal deployments can omit the queue; when absent,
+   * transcripts are still stored — they just aren't analyzed.
+   */
+  enqueueAnalysis?: (target: AnalysisJobTarget) => Promise<void>;
 }
 
 /** Dispatch a verified, de-duplicated webhook envelope to the ingestion service. */
@@ -82,6 +94,20 @@ export async function processRecallWebhook(
     });
     await service.ingestTranscript(botId, transcript);
     logger.info({ botId, segments: transcript.segments.length }, 'transcript ingested');
+
+    // Hand off to Codex analysis (async, out-of-band). We only persist +
+    // enqueue here — the webhook must stay fast and idempotent; the worker
+    // runs the model. Skip empty transcripts (nothing to analyze).
+    if (transcript.mergedText.trim().length > 0 && deps.enqueueAnalysis) {
+      const meeting = await service.getMeetingByExternalId(botId);
+      if (meeting) {
+        await deps.enqueueAnalysis({
+          meetingId: meeting.id,
+          organizationId: meeting.organizationId,
+        });
+        logger.info({ botId, meetingId: meeting.id }, 'meeting analysis enqueued');
+      }
+    }
     return;
   }
 

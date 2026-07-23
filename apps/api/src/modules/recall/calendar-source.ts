@@ -34,6 +34,11 @@ export interface CalendarEventSource {
   organizationsWithCalendars(): Promise<string[]>;
   /** Recently-updated calendar events for an organization. */
   upcomingForOrganization(organizationId: string): Promise<UpcomingCalendarMeeting[]>;
+  /** A single calendar event by its id, scoped to an organization. */
+  getByCalendarEventId(
+    organizationId: string,
+    calendarEventId: string,
+  ): Promise<UpcomingCalendarMeeting | null>;
 }
 
 interface CalendarEventMeta {
@@ -83,21 +88,58 @@ export class PrismaCalendarEventSource implements CalendarEventSource {
       },
     });
 
-    return events.map((event) => {
-      const meta = (event.metadata ?? {}) as CalendarEventMeta;
-      return {
-        calendarEventId: event.externalId,
+    return events.map((event) => this.toMeeting(organizationId, event));
+  }
+
+  async getByCalendarEventId(
+    organizationId: string,
+    calendarEventId: string,
+  ): Promise<UpcomingCalendarMeeting | null> {
+    const event = await this.prisma.externalResource.findFirst({
+      where: {
         organizationId,
-        connectorId: event.connectorId,
-        userId: event.connector?.ownerId ?? null,
-        calendarId: event.parentExternalId,
-        title: event.title ?? 'Meeting',
-        meetingUrl: meta.meetingLink ?? null,
-        startsAt: toDate(meta.start),
-        endsAt: toDate(meta.end),
-        organizerEmail: event.ownerEmail,
-        cancelled: meta.status === 'cancelled',
-      };
+        type: 'CALENDAR_EVENT',
+        externalId: calendarEventId,
+        deletedAt: null,
+      },
+      select: {
+        connectorId: true,
+        externalId: true,
+        title: true,
+        ownerEmail: true,
+        parentExternalId: true,
+        metadata: true,
+        connector: { select: { ownerId: true } },
+      },
     });
+    return event ? this.toMeeting(organizationId, event) : null;
+  }
+
+  private toMeeting(
+    organizationId: string,
+    event: {
+      connectorId: string | null;
+      externalId: string;
+      title: string | null;
+      ownerEmail: string | null;
+      parentExternalId: string | null;
+      metadata: unknown;
+      connector: { ownerId: string | null } | null;
+    },
+  ): UpcomingCalendarMeeting {
+    const meta = (event.metadata ?? {}) as CalendarEventMeta;
+    return {
+      calendarEventId: event.externalId,
+      organizationId,
+      connectorId: event.connectorId,
+      userId: event.connector?.ownerId ?? null,
+      calendarId: event.parentExternalId,
+      title: event.title ?? 'Meeting',
+      meetingUrl: meta.meetingLink ?? null,
+      startsAt: toDate(meta.start),
+      endsAt: toDate(meta.end),
+      organizerEmail: event.ownerEmail,
+      cancelled: meta.status === 'cancelled',
+    };
   }
 }

@@ -4,8 +4,15 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { config } from '../../config/index.js';
 import { ok, fail } from '../../utils/response.js';
 import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
+import {
+  MEETING_ANALYSIS_JOB,
+  QUEUE_NAMES,
+  type MeetingAnalysisJob,
+} from '../../services/queue.service.js';
 import { createPrismaRepositories } from './repositories.prisma.js';
 import { MeetingIngestionService, MeetingNotFoundError } from './ingestion.service.js';
+import { MeetingsService } from './meetings.service.js';
+import { PrismaCalendarEventSource } from './calendar-source.js';
 import { RecallClient } from './recall.client.js';
 import { processRecallWebhook } from './recall.webhook.js';
 import { extractSignatureHeaders, verifyRecallSignature } from './signature.js';
@@ -44,9 +51,31 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
 
   const repos = createPrismaRepositories(app.prisma);
   const service = new MeetingIngestionService(repos);
+  const meetingsService = new MeetingsService({
+    repos,
+    calendarSource: new PrismaCalendarEventSource(app.prisma),
+  });
   const client = config.recall.apiKey
     ? new RecallClient({ apiKey: config.recall.apiKey, baseUrl: config.recall.baseUrl })
     : null;
+
+  // Persist a pending marker (so the UI shows "analyzing") then enqueue the
+  // Codex job for the meeting-analysis worker. Kept here — not in the webhook
+  // controller — so the queue dependency stays out of the pure webhook logic.
+  const enqueueAnalysis = async (target: {
+    meetingId: string;
+    organizationId: string | null;
+  }): Promise<void> => {
+    await repos.analyses.markPending(target.meetingId);
+    await app.queues.enqueue<MeetingAnalysisJob>(
+      QUEUE_NAMES.meetingAnalysis,
+      MEETING_ANALYSIS_JOB,
+      {
+        meetingId: target.meetingId,
+        organizationId: target.organizationId,
+      },
+    );
+  };
 
   const resolveOrg = async (userId: string): Promise<string> => {
     const membership = await app.prisma.membership.findFirst({
@@ -126,7 +155,12 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
       }
 
       try {
-        await processRecallWebhook(envelope, { service, client, logger: request.log });
+        await processRecallWebhook(envelope, {
+          service,
+          client,
+          logger: request.log,
+          enqueueAnalysis,
+        });
         await repos.webhookEvents.markProcessed(eventId);
         return reply.status(200).send(ok({ processed: true }));
       } catch (err) {
@@ -165,8 +199,7 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       const organizationId = await resolveOrg(request.user!.id);
-      const meetings = await service.listMeetings({
-        organizationId,
+      const meetings = await meetingsService.list(organizationId, {
         ...(request.query.status ? { status: request.query.status } : {}),
         limit: request.query.limit,
         offset: request.query.offset,
@@ -189,7 +222,7 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const organizationId = await resolveOrg(request.user!.id);
       const detail = await notFoundGuard(() =>
-        service.getMeeting(organizationId, request.params.id),
+        meetingsService.get(organizationId, request.params.id),
       );
       return reply.send(ok(detail));
     },
@@ -208,9 +241,10 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       const organizationId = await resolveOrg(request.user!.id);
-      const participants = await notFoundGuard(() =>
-        service.getParticipants(organizationId, request.params.id),
-      );
+      const participants = await notFoundGuard(async () => {
+        const capture = await meetingsService.resolveCapture(organizationId, request.params.id);
+        return capture ? service.getParticipants(organizationId, capture.id) : [];
+      });
       return reply.send(ok(participants));
     },
   );
@@ -228,9 +262,10 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       const organizationId = await resolveOrg(request.user!.id);
-      const transcript = await notFoundGuard(() =>
-        service.getTranscript(organizationId, request.params.id),
-      );
+      const transcript = await notFoundGuard(async () => {
+        const capture = await meetingsService.resolveCapture(organizationId, request.params.id);
+        return capture ? service.getTranscript(organizationId, capture.id) : null;
+      });
       if (!transcript) throw new NotFoundError('Transcript');
       return reply.send(ok(transcript));
     },
@@ -249,9 +284,10 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       const organizationId = await resolveOrg(request.user!.id);
-      const recordings = await notFoundGuard(() =>
-        service.getRecordings(organizationId, request.params.id),
-      );
+      const recordings = await notFoundGuard(async () => {
+        const capture = await meetingsService.resolveCapture(organizationId, request.params.id);
+        return capture ? service.getRecordings(organizationId, capture.id) : [];
+      });
       return reply.send(ok(recordings));
     },
   );

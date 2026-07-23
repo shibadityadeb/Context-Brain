@@ -11,6 +11,55 @@ import { liveEventsUrl, type LiveEvent } from './api';
  * types; changing callbacks are tracked via refs so we never reconnect
  * needlessly.
  */
+/**
+ * Like {@link useLiveRefresh} but hands the raw event to the callback (no
+ * debounce) — for surfaces that need the event type/label per occurrence, e.g.
+ * a live activity toast. Opens one socket for the component's lifetime.
+ */
+export function useLiveEvent(types: string[], onEvent: (event: LiveEvent) => void): void {
+  const callback = useRef(onEvent);
+  callback.current = onEvent;
+  const typeSet = useRef(new Set(types));
+  const key = types.join(',');
+  useEffect(() => {
+    typeSet.current = new Set(types);
+  }, [key, types]);
+
+  useEffect(() => {
+    const url = liveEventsUrl();
+    if (!url) return;
+
+    let closed = false;
+    let socket: WebSocket | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      socket = new WebSocket(url);
+      socket.onmessage = (message) => {
+        try {
+          const event = JSON.parse(message.data as string) as LiveEvent;
+          if (typeSet.current.has('*') || typeSet.current.has(event.type)) {
+            callback.current(event);
+          }
+        } catch {
+          /* ignore malformed frame */
+        }
+      };
+      socket.onclose = () => {
+        if (!closed) retry = setTimeout(connect, 2500);
+      };
+      socket.onerror = () => socket?.close();
+    };
+    connect();
+
+    return () => {
+      closed = true;
+      if (retry) clearTimeout(retry);
+      socket?.close();
+    };
+  }, []);
+}
+
 export function useLiveRefresh(
   types: string[],
   onRefresh: () => void,

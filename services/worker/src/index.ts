@@ -1,8 +1,14 @@
 import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { pino } from 'pino';
+import { PrismaClient } from '@prisma/client';
+import { createLLMService } from '@company-brain/llm';
 import { config } from './config.js';
 import { createSystemProcessor } from './processors/system.processor.js';
+import { createMeetingAnalysisProcessor } from './processors/meeting-analysis.processor.js';
+
+/** Queue names — mirror the API's queue.service.ts contract. */
+const MEETING_ANALYSIS_QUEUE = 'meeting-analysis';
 
 const logger = pino({
   level: config.logLevel,
@@ -26,23 +32,42 @@ function main(): void {
   });
   connection.on('error', (error) => logger.error({ err: error }, 'redis connection error'));
 
-  const worker = new Worker('system', createSystemProcessor(logger), {
+  const prisma = new PrismaClient();
+  // Codex-backed LLM service (reused from the shared @company-brain/llm layer).
+  const llm = createLLMService();
+
+  const systemWorker = new Worker('system', createSystemProcessor(logger), {
     connection,
     prefix: config.queue.prefix,
     concurrency: 5,
   });
 
-  worker.on('ready', () => logger.info('worker ready — listening on queue "system"'));
-  worker.on('completed', (job) => logger.info({ jobId: job.id, name: job.name }, 'job completed'));
-  worker.on('failed', (job, error) =>
-    logger.error({ jobId: job?.id, name: job?.name, err: error }, 'job failed'),
+  // Codex analysis runs the CLI per job — keep concurrency low so we don't spawn
+  // many heavy processes at once.
+  const analysisWorker = new Worker(
+    MEETING_ANALYSIS_QUEUE,
+    createMeetingAnalysisProcessor({ prisma, llm, logger }),
+    { connection, prefix: config.queue.prefix, concurrency: 2 },
+  );
+
+  const workers = [systemWorker, analysisWorker];
+  for (const w of workers) {
+    w.on('completed', (job) => logger.info({ jobId: job.id, name: job.name }, 'job completed'));
+    w.on('failed', (job, error) =>
+      logger.error({ jobId: job?.id, name: job?.name, err: error }, 'job failed'),
+    );
+  }
+  systemWorker.on('ready', () => logger.info('worker ready — listening on queue "system"'));
+  analysisWorker.on('ready', () =>
+    logger.info('worker ready — listening on queue "meeting-analysis"'),
   );
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutting down worker');
     try {
       // Waits for in-flight jobs to finish before closing.
-      await worker.close();
+      await Promise.all(workers.map((w) => w.close()));
+      await prisma.$disconnect();
       await connection.quit();
       process.exit(0);
     } catch (error) {

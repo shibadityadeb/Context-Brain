@@ -110,16 +110,24 @@ async function mapWithLimit<T, R>(
  * app group tasks/bugs/people project-wise even when extraction didn't name a
  * project explicitly, per the product requirement "project = doc name/heading".
  */
-function deriveProjectName(document: { title: string; metadata: Prisma.JsonValue | null }): string {
-  const meta = (document.metadata ?? {}) as { headings?: string[] };
-  const heading = (meta.headings ?? []).find(
-    (h) => typeof h === 'string' && h.trim().length > 2 && h.trim().length < 80,
-  );
-  const base = heading ?? document.title;
+/**
+ * A stable project name for the source. Derived from the document's FILENAME
+ * (then title) — deliberately NOT a section heading: headings change as the doc
+ * is edited, which would spawn a new project and orphan the old one on every
+ * edit (the "renamed a heading and nothing updated" bug). The filename is the
+ * document's durable identity, so the project stays put across content edits.
+ */
+function deriveProjectName(document: {
+  title: string;
+  fileName?: string | null;
+  metadata: Prisma.JsonValue | null;
+}): string {
+  const base = document.fileName?.trim() || document.title;
   const cleaned = base
     .replace(/\.(csv|xlsx?|pdf|docx?|txt|md|json)$/i, '')
     .replace(/^copy of\s+/i, '')
     .replace(/\(?\d{1,2}[ ._/-]\d{1,2}[ ._/-]\d{2,4}\)?/g, '')
+    .replace(/[_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned.length >= 2 ? cleaned : document.title;
@@ -401,6 +409,14 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
     async extractDocumentKnowledge(input: KnowledgeRunInput): Promise<ExtractStats> {
       const document = await requireDocument(input.documentId);
 
+      // Mark extraction in-flight so the global activity indicator can show it
+      // for its whole (multi-second) duration. Cleared in finalizeKnowledgeRun;
+      // the activity endpoint also ignores stale markers, so a crashed run can
+      // never leave it stuck. Best-effort — never fail extraction over this.
+      await prisma.document
+        .update({ where: { id: document.id }, data: { extractionStartedAt: new Date() } })
+        .catch(() => undefined);
+
       // Read ONLY the current version's chunks. Re-ingestion creates a new
       // DocumentVersion; reading by documentId alone would mix in stale
       // prior-version chunks and re-derive outdated knowledge — the root cause
@@ -611,6 +627,43 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
         select: { id: true },
       });
 
+      // Reconcile stale source-derived projects: a previous run may have created
+      // a project from an old heading/name (e.g. "1. Project Overview"). Remove
+      // those pseudo-projects for THIS document and their grouping edges so tasks
+      // regroup under the current project instead of a stale one.
+      const staleProjects = await prisma.knowledgeObject.findMany({
+        where: {
+          organizationId: document.organizationId,
+          type: 'PROJECT',
+          sourceDocumentId: document.id,
+          createdBy: 'system:project-from-source',
+          deletedAt: null,
+          id: { not: projectNode.id },
+        },
+        select: { id: true },
+      });
+      if (staleProjects.length > 0) {
+        const staleIds = staleProjects.map((p) => p.id);
+        const now = new Date();
+        await prisma.$transaction([
+          prisma.knowledgeRelationship.updateMany({
+            where: {
+              deletedAt: null,
+              OR: [{ fromId: { in: staleIds } }, { toId: { in: staleIds } }],
+            },
+            data: { deletedAt: now },
+          }),
+          prisma.knowledgeObject.updateMany({
+            where: { id: { in: staleIds } },
+            data: { deletedAt: now },
+          }),
+        ]);
+        log.info('pruned stale source-derived projects', {
+          documentId: document.id,
+          removed: staleIds.length,
+        });
+      }
+
       // Fetch the mentioned objects with their types so we can pick edge kinds.
       const mentioned = await prisma.knowledgeObject.findMany({
         where: { id: { in: mentionedIds }, deletedAt: null },
@@ -808,7 +861,8 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
       };
       await prisma.document.update({
         where: { id: input.documentId },
-        data: { metadata: metadata as Prisma.InputJsonValue },
+        // Clear the in-flight extraction marker (success or failure).
+        data: { metadata: metadata as Prisma.InputJsonValue, extractionStartedAt: null },
       });
 
       // Realtime: tell every subscribed UI the source's knowledge changed so it

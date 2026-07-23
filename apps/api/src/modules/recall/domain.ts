@@ -23,6 +23,8 @@ export interface NormalizedMeeting {
   /** Our own upstream meeting id (calendar-derived), when carried in metadata. */
   externalMeetingId?: string | null;
   provider?: string;
+  /** Human-readable meeting title (from the calendar event), when known. */
+  title?: string | null;
   meetingUrl?: string | null;
   botName?: string | null;
   platform?: string | null;
@@ -86,6 +88,7 @@ export interface StoredMeeting {
   organizationId: string | null;
   externalMeetingId: string | null;
   provider: string;
+  title: string | null;
   meetingUrl: string | null;
   botName: string | null;
   platform: string | null;
@@ -135,4 +138,37 @@ export interface StoredTranscript {
   mergedText: string | null;
   durationMs: number | null;
   segments: StoredTranscriptSegment[];
+}
+
+/** Lifecycle of the Codex analysis derived from a meeting's transcript. */
+export type AnalysisStatus = 'pending' | 'processing' | 'done' | 'failed';
+
+/** One action item extracted from the meeting by Codex. */
+export interface AnalysisActionItem {
+  title: string;
+  owner?: string | null;
+}
+
+/** One decision the group reached, extracted by Codex. */
+export interface AnalysisDecision {
+  decision: string;
+  detail?: string | null;
+}
+
+/**
+ * The Codex-generated analysis of a meeting: summary, action items, decisions,
+ * and key topics. Produced asynchronously by the meeting-analysis worker once a
+ * transcript is available; provider-agnostic (no Codex/LLM types leak here).
+ */
+export interface StoredMeetingAnalysis {
+  status: AnalysisStatus;
+  summary: string | null;
+  actionItems: AnalysisActionItem[];
+  decisions: AnalysisDecision[];
+  topics: string[];
+  /** Backend id that produced the analysis (e.g. "codex"), for observability. */
+  model: string | null;
+  error: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
