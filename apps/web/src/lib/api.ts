@@ -871,11 +871,16 @@ export const memoryApi = {
 
 // ── Ask Brain (conversational) ────────────────────────────────────
 
+export type AskSourceKind =
+  'knowledge' | 'memory' | 'meeting' | 'document' | 'email' | 'calendar' | 'web';
+
 export interface AskSource {
   id: string;
-  kind: 'knowledge' | 'memory' | 'meeting';
+  kind: AskSourceKind;
   type: string;
   title: string;
+  /** External link for web sources. */
+  url?: string | null;
 }
 
 export interface AskResponse {
@@ -889,6 +894,104 @@ export const askApi = {
     history?: { role: 'user' | 'assistant'; content: string }[];
   }): Promise<AskResponse> {
     return request('/api/v1/ask', { method: 'POST', body: JSON.stringify(body) });
+  },
+};
+
+// ── Ask Brain — collaborative conversations (Personal + Team) ──────
+
+export type ConversationScope = 'personal' | 'team';
+
+export interface Conversation {
+  id: string;
+  title: string;
+  scope: ConversationScope;
+  isArchived: boolean;
+  createdBy: string;
+  creatorName: string | null;
+  lastMessageAt: string | null;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: string; // 'user' | 'assistant'
+  content: string;
+  sources: AskSource[];
+  authorId: string | null;
+  createdAt: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ConversationMessage[];
+}
+
+export interface SentTurn {
+  userMessage: ConversationMessage;
+  assistantMessage: ConversationMessage;
+  sources: AskSource[];
+}
+
+export interface ConversationList {
+  items: Conversation[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export const conversationApi = {
+  list(
+    params: {
+      scope?: ConversationScope;
+      search?: string;
+      archived?: boolean;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<ConversationList> {
+    const query = toQuery({
+      scope: params.scope,
+      search: params.search,
+      archived: params.archived ? 'true' : undefined,
+      page: params.page,
+      limit: params.limit,
+    });
+    return request(`/api/v1/ask/conversations${query}`);
+  },
+
+  get(id: string): Promise<ConversationDetail> {
+    return request(`/api/v1/ask/conversations/${id}`);
+  },
+
+  create(body: { scope: ConversationScope; title?: string }): Promise<Conversation> {
+    return request('/api/v1/ask/conversations', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  rename(id: string, title: string): Promise<Conversation> {
+    return request(`/api/v1/ask/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+  },
+
+  archive(id: string, isArchived: boolean): Promise<Conversation> {
+    return request(`/api/v1/ask/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isArchived }),
+    });
+  },
+
+  remove(id: string): Promise<{ deleted: boolean }> {
+    return request(`/api/v1/ask/conversations/${id}`, { method: 'DELETE' });
+  },
+
+  sendMessage(id: string, question: string): Promise<SentTurn> {
+    return request(`/api/v1/ask/conversations/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ question }),
+    });
   },
 };
 

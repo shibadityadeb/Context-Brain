@@ -127,6 +127,11 @@ export const config = {
   activity: {
     extractionStaleMinutes: env.ACTIVITY_EXTRACTION_STALE_MINUTES,
   },
+  webSearch: {
+    provider: env.WEB_SEARCH_PROVIDER,
+    apiKey: env.WEB_SEARCH_API_KEY,
+    maxResults: env.WEB_SEARCH_MAX_RESULTS,
+  },
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,
     workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,

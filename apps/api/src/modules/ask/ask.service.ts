@@ -1,36 +1,46 @@
 import type { PrismaClient } from '@prisma/client';
+import type { ConversationScope } from '@prisma/client';
 import { createLLMProvider, type LLMProvider } from '@company-brain/knowledge-engine';
 import {
-  SqlRetrievalService,
+  createWebSearchProvider,
+  DEFAULT_SOURCES,
+  ScopedRetrievalService,
+  webSearchSource,
+  type RetrievalScope,
   type RetrievalService,
   type RetrievedItem,
 } from '@company-brain/retrieval';
 import { config } from '../../config/index.js';
 import { ForbiddenError } from '../../utils/errors.js';
 import type { AskBody } from './ask.schemas.js';
+import { AccessControlService } from './access-control.service.js';
+import { ConversationService } from './conversation.service.js';
+import { buildAskPrompt, type PromptTurn } from './prompt-builder.js';
+import { finalizeAnswer, toSources, type AskSource } from './response-formatter.js';
 
 interface Deps {
   prisma: PrismaClient;
 }
 
-type Retrieved = RetrievedItem;
+/** How many prior turns to feed back as follow-up context. */
+const HISTORY_TURNS = 8;
 
-export interface AskSource {
-  id: string;
-  kind: RetrievedItem['kind'];
-  type: string;
-  title: string;
+function toRetrievalScope(scope: ConversationScope): RetrievalScope {
+  return scope === 'PERSONAL' ? 'personal' : 'team';
 }
 
 /**
- * Ask Brain — a conversational company librarian. It finds the relevant
- * records through the pluggable RetrievalService (SQL keyword search today,
- * a vector store tomorrow — this file never changes), then an LLM turns them
- * into one natural, cited answer. Never invents beyond what was found.
+ * Ask Brain orchestrator — wires the decoupled services into the pipeline:
+ *   question → conversation scope → access check → scoped retrieval → prompt →
+ *   Codex → formatted answer → persist. It owns no business rules itself; each
+ *   concern (auth, retrieval, prompt, formatting, storage) lives in its own unit
+ *   so retrieval never sees auth and the LLM stays swappable behind one call.
  */
 export class AskService {
   private readonly llm: LLMProvider;
   private readonly retrieval: RetrievalService;
+  readonly access: AccessControlService;
+  readonly conversations: ConversationService;
 
   constructor(private readonly deps: Deps) {
     this.llm = createLLMProvider({
@@ -39,7 +49,20 @@ export class AskService {
       apiKey: config.llm.apiKey,
       baseUrl: config.llm.baseUrl,
     });
-    this.retrieval = new SqlRetrievalService(this.deps.prisma);
+    // Company knowledge sources + a config-driven web search source, so Ask
+    // Brain can answer from the knowledge base AND the open web (like a
+    // browsing assistant). Web is disabled gracefully when not configured.
+    const web = webSearchSource(
+      createWebSearchProvider({
+        provider: config.webSearch.provider,
+        apiKey: config.webSearch.apiKey,
+        maxResults: config.webSearch.maxResults,
+      }),
+      config.webSearch.maxResults,
+    );
+    this.retrieval = new ScopedRetrievalService(this.deps.prisma, [...DEFAULT_SOURCES, web]);
+    this.access = new AccessControlService();
+    this.conversations = new ConversationService({ prisma: this.deps.prisma, access: this.access });
   }
 
   async resolveOrganization(userId: string): Promise<string> {
@@ -51,127 +74,90 @@ export class AskService {
     return membership.organizationId;
   }
 
+  // ── Legacy stateless ask (team scope) — kept for backward compatibility ──────
+
   async ask(organizationId: string, body: AskBody) {
-    const items = await this.retrieve(organizationId, body.question);
-    const answer = await this.answer(body, items);
-    const sources: AskSource[] = items
-      .slice(0, 6)
-      .map((i) => ({ id: i.id, kind: i.kind, type: i.type, title: i.title }));
-    return { answer, sources };
+    const items = await this.retrieval.retrieve(organizationId, body.question, { scope: 'team' });
+    const answer = await this.generate('team', body.question, body.history ?? [], items);
+    return { answer, sources: toSources(items) };
   }
 
-  // ── Retrieval (pluggable — SQL keyword search today) ────────────
-
-  private async retrieve(organizationId: string, question: string): Promise<Retrieved[]> {
-    return this.retrieval.retrieve(organizationId, question);
-  }
-
-  // ── Conversational answer ───────────────────────────────────────
-
-  private async answer(body: AskBody, items: Retrieved[]): Promise<string> {
-    // No usable model configured → graceful, non-LLM reply.
-    if (config.llm.provider === 'mock' || (!config.llm.apiKey && config.llm.provider !== 'local')) {
-      return this.fallback(body.question, items);
-    }
-
-    const context = items.length
-      ? items
-          .map(
-            (it, i) => `[${i + 1}] (${it.type}) ${it.title}${it.summary ? ` — ${it.summary}` : ''}`,
-          )
-          .join('\n')
-      : '(no matching records were found in the company knowledge base)';
-
-    const system = [
-      'You are Company Brain — the shared memory and expert librarian of this organization.',
-      'You have read the company’s documents, people, projects, bugs, decisions and meetings.',
-      'Answer the user like a brilliant, warm, concise librarian who knows exactly where everything is.',
-      'Ground every claim ONLY in the provided CONTEXT. Refer to items by their name.',
-      'If the CONTEXT does not contain the answer, say so briefly and honestly, and suggest what to look at — never invent facts.',
-      'For greetings or small talk, reply warmly in one or two sentences and invite a real question.',
-      'Keep answers tight (2–5 sentences) unless the user clearly wants more. Use plain, natural language.',
-    ].join(' ');
-
-    const history = (body.history ?? [])
-      .map((h) => `${h.role === 'user' ? 'User' : 'You'}: ${h.content}`)
-      .join('\n');
-
-    const prompt = [
-      history ? `Conversation so far:\n${history}\n` : '',
-      `CONTEXT (what the company knows):\n${context}`,
-      `\nUser: ${body.question}`,
-      '\nAnswer as the company’s librarian:',
-    ].join('\n');
-
-    try {
-      const text = this.unwrap(await this.llm.complete({ system, prompt }));
-      return text.length > 0 ? text : this.fallback(body.question, items);
-    } catch {
-      return this.fallback(body.question, items);
-    }
-  }
+  // ── Conversational turn (persisted, scoped) ──────────────────────────────────
 
   /**
-   * Some providers (e.g. Gemini in JSON mode) return the answer wrapped in a
-   * JSON object or a ```json fence. Extract the human text; plain prose from
-   * other providers passes straight through.
+   * Run one user turn inside a conversation: authorize, retrieve within the
+   * conversation's scope, synthesize with Codex, and persist both messages.
    */
-  private unwrap(raw: string): string {
-    let t = raw.trim();
-    const fence = t.match(/^```(?:json|markdown)?\s*([\s\S]*?)\s*```$/i);
-    if (fence?.[1]) t = fence[1].trim();
-    if (t.startsWith('{') || t.startsWith('[')) {
-      try {
-        const parsed: unknown = JSON.parse(t);
-        const text = this.pickText(parsed);
-        if (text) return text.trim();
-      } catch {
-        /* not JSON — keep the raw text */
-      }
-    }
-    return t;
+  async converse(organizationId: string, userId: string, conversationId: string, question: string) {
+    const conversation = await this.conversations.requireConversation(
+      organizationId,
+      conversationId,
+    );
+    this.access.assertCanContinue({ userId }, conversation);
+
+    const scope = toRetrievalScope(conversation.scope);
+    const [items, history] = await Promise.all([
+      this.retrieval.retrieve(organizationId, question, { scope, userId }),
+      this.conversations.recentHistory(conversationId, HISTORY_TURNS),
+    ]);
+
+    const answer = await this.generate(scope, question, history as PromptTurn[], items);
+    const sources = toSources(items);
+
+    // Name a fresh conversation from its first question before persisting.
+    await this.conversations.titleFromFirstMessage(conversationId, question);
+
+    const userMessage = await this.conversations.appendMessage(conversationId, organizationId, {
+      role: 'user',
+      content: question,
+      authorId: userId,
+    });
+    const assistantMessage = await this.conversations.appendMessage(
+      conversationId,
+      organizationId,
+      {
+        role: 'assistant',
+        content: answer,
+        sources,
+      },
+    );
+
+    return { userMessage, assistantMessage, sources };
   }
 
-  private pickText(value: unknown): string | null {
-    if (typeof value === 'string') return value;
-    if (Array.isArray(value)) {
-      const parts = value.map((v) => this.pickText(v)).filter(Boolean) as string[];
-      return parts.length ? parts.join('\n\n') : null;
-    }
-    if (value && typeof value === 'object') {
-      const obj = value as Record<string, unknown>;
-      // Preferred keys first.
-      for (const key of [
-        'reply',
-        'answer',
-        'summary',
-        'text',
-        'content',
-        'response',
-        'message',
-        'result',
-      ]) {
-        if (typeof obj[key] === 'string' && (obj[key] as string).trim()) return obj[key] as string;
-      }
-      // Otherwise the longest string value under any key.
-      const strings = Object.values(obj).filter(
-        (v): v is string => typeof v === 'string' && v.trim().length > 0,
-      );
-      if (strings.length) return strings.sort((a, b) => b.length - a.length)[0]!;
-      // Or recurse into a nested object/array.
-      for (const v of Object.values(obj)) {
-        const nested = this.pickText(v);
-        if (nested) return nested;
-      }
-    }
-    return null;
+  // ── Answer generation (Codex only) ───────────────────────────────────────────
+
+  private async generate(
+    scope: RetrievalScope,
+    question: string,
+    history: PromptTurn[],
+    items: RetrievedItem[],
+  ): Promise<string> {
+    const raw = this.llmAvailable() ? await this.callModel(scope, question, history, items) : null;
+    return finalizeAnswer(raw, items, scope);
   }
 
-  private fallback(question: string, items: Retrieved[]): string {
-    if (items.length === 0) {
-      return "Hi — I'm your Company Brain. I couldn't find anything on that yet. Ask me about a person, project, bug, decision or document and I'll pull together what the company knows.";
+  /** Codex (and local) need no API key; only key-based providers require one. */
+  private llmAvailable(): boolean {
+    const provider = config.llm.provider;
+    if (provider === 'mock') return false;
+    const needsKey = provider !== 'codex' && provider !== 'local';
+    return !needsKey || Boolean(config.llm.apiKey);
+  }
+
+  private async callModel(
+    scope: RetrievalScope,
+    question: string,
+    history: PromptTurn[],
+    items: RetrievedItem[],
+  ): Promise<string | null> {
+    const { system, prompt } = buildAskPrompt({ scope, question, history, items });
+    try {
+      return await this.llm.complete({ system, prompt });
+    } catch {
+      return null;
     }
-    const names = items.slice(0, 3).map((i) => i.title);
-    return `Here's what I found related to your question: ${names.join(', ')}. Open any of the sources below for the full picture.`;
   }
 }
+
+export type { AskSource };

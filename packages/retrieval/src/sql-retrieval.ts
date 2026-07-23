@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { extractKeywords, type KeywordOptions } from './keywords.js';
+import { rank } from './rank.js';
 import type { RetrievalService, RetrieveOptions, RetrievedItem, RetrievedKind } from './types.js';
 
 export interface SqlRetrievalConfig {
@@ -18,13 +19,6 @@ export const DEFAULT_SQL_RETRIEVAL_CONFIG: SqlRetrievalConfig = {
   meetingTake: 5,
   defaultLimit: 15,
   keyword: { minLength: 3, maxTerms: 6 },
-};
-
-/** Base relevance per kind; position within a kind decays from here. */
-const KIND_BASE: Record<RetrievedKind, number> = {
-  knowledge: 0.9,
-  memory: 0.75,
-  meeting: 0.7,
 };
 
 /**
@@ -108,17 +102,4 @@ export class SqlRetrievalService implements RetrievalService {
 
     return items.sort((a, b) => b.score - a.score).slice(0, limit);
   }
-}
-
-function rank(
-  kind: RetrievedKind,
-  type: string,
-  title: string,
-  summary: string | null,
-  id: string,
-  position: number,
-): RetrievedItem {
-  // Decay within a kind so earlier (more relevant / more recent) rows win.
-  const score = Math.max(0, KIND_BASE[kind] - position * 0.05);
-  return { id, kind, type, title, summary, score };
 }
