@@ -8,6 +8,9 @@
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type {
+  AnalysisActionItem,
+  AnalysisDecision,
+  AnalysisStatus,
   MeetingStatus,
   NormalizedMeeting,
   NormalizedParticipant,
@@ -15,12 +18,14 @@ import type {
   NormalizedTranscript,
   RecordingStatus,
   StoredMeeting,
+  StoredMeetingAnalysis,
   StoredParticipant,
   StoredRecording,
   StoredTranscript,
   TranscriptStatus,
 } from './domain.js';
 import type {
+  AnalysisRepository,
   ListMeetingsFilter,
   MeetingRepository,
   ParticipantRepository,
@@ -52,6 +57,13 @@ const SIMPLE_STATUS_FROM_DB: Record<string, RecordingStatus & TranscriptStatus> 
   FAILED: 'failed',
 };
 
+const ANALYSIS_STATUS_FROM_DB: Record<string, AnalysisStatus> = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  DONE: 'done',
+  FAILED: 'failed',
+};
+
 /** Coerce an arbitrary value into something Prisma will accept in a Json column. */
 function toJson(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined || value === null) return undefined;
@@ -68,6 +80,7 @@ function toStoredMeeting(m: {
   organizationId: string | null;
   externalMeetingId: string | null;
   provider: string;
+  title: string | null;
   meetingUrl: string | null;
   botName: string | null;
   platform: string | null;
@@ -85,6 +98,7 @@ function toStoredMeeting(m: {
     organizationId: m.organizationId,
     externalMeetingId: m.externalMeetingId,
     provider: m.provider,
+    title: m.title,
     meetingUrl: m.meetingUrl,
     botName: m.botName,
     platform: m.platform,
@@ -109,6 +123,7 @@ export class PrismaMeetingRepository implements MeetingRepository {
     if (meeting.externalMeetingId !== undefined)
       patch.externalMeetingId = meeting.externalMeetingId;
     if (meeting.provider !== undefined) patch.provider = meeting.provider;
+    if (meeting.title !== undefined) patch.title = meeting.title;
     if (meeting.meetingUrl !== undefined) patch.meetingUrl = meeting.meetingUrl;
     if (meeting.botName !== undefined) patch.botName = meeting.botName;
     if (meeting.platform !== undefined) patch.platform = meeting.platform;
@@ -127,6 +142,7 @@ export class PrismaMeetingRepository implements MeetingRepository {
         organizationId: meeting.organizationId ?? null,
         externalMeetingId: meeting.externalMeetingId ?? null,
         provider: meeting.provider ?? 'recall',
+        title: meeting.title ?? null,
         meetingUrl: meeting.meetingUrl ?? null,
         botName: meeting.botName ?? null,
         platform: meeting.platform ?? null,
@@ -380,6 +396,75 @@ export class PrismaTranscriptRepository implements TranscriptRepository {
   }
 }
 
+// ── Meeting analysis (Codex-generated) ────────────────────────────────────────
+
+function toActionItems(value: unknown): AnalysisActionItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw) => {
+      if (typeof raw === 'string') return { title: raw };
+      if (raw && typeof raw === 'object') {
+        const o = raw as Record<string, unknown>;
+        const title = typeof o.title === 'string' ? o.title : null;
+        if (!title) return null;
+        return { title, owner: typeof o.owner === 'string' ? o.owner : null };
+      }
+      return null;
+    })
+    .filter((x): x is AnalysisActionItem => x !== null);
+}
+
+function toDecisions(value: unknown): AnalysisDecision[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw) => {
+      if (typeof raw === 'string') return { decision: raw };
+      if (raw && typeof raw === 'object') {
+        const o = raw as Record<string, unknown>;
+        const decision = typeof o.decision === 'string' ? o.decision : null;
+        if (!decision) return null;
+        return { decision, detail: typeof o.detail === 'string' ? o.detail : null };
+      }
+      return null;
+    })
+    .filter((x): x is AnalysisDecision => x !== null);
+}
+
+function toTopics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+}
+
+export class PrismaAnalysisRepository implements AnalysisRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async getByMeeting(meetingId: string): Promise<StoredMeetingAnalysis | null> {
+    const row = await this.prisma.recallMeetingAnalysis.findUnique({ where: { meetingId } });
+    if (!row) return null;
+    return {
+      status: ANALYSIS_STATUS_FROM_DB[row.status] ?? 'pending',
+      summary: row.summary,
+      actionItems: toActionItems(row.actionItems),
+      decisions: toDecisions(row.decisions),
+      topics: toTopics(row.topics),
+      model: row.model,
+      error: row.error,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  /** Upsert a PENDING analysis row so the UI can show "queued" immediately. */
+  async markPending(meetingId: string): Promise<void> {
+    await this.prisma.recallMeetingAnalysis.upsert({
+      where: { meetingId },
+      create: { meetingId, status: 'PENDING' },
+      // Re-arm a prior FAILED/DONE run when a fresh transcript is re-analyzed.
+      update: { status: 'PENDING', error: null },
+    });
+  }
+}
+
 // ── Webhook events (idempotency ledger) ───────────────────────────────────────
 
 export class PrismaWebhookEventRepository implements WebhookEventRepository {
@@ -452,6 +537,7 @@ export function createPrismaRepositories(prisma: PrismaClient): Repositories {
     participants: new PrismaParticipantRepository(prisma),
     recordings: new PrismaRecordingRepository(prisma),
     transcripts: new PrismaTranscriptRepository(prisma),
+    analyses: new PrismaAnalysisRepository(prisma),
     webhookEvents: new PrismaWebhookEventRepository(prisma),
   };
 }

@@ -37,6 +37,7 @@ export default fp(
         transcriptProvider,
         lookaheadMinutes: scheduler.lookaheadMinutes,
         joinOffsetMinutes: scheduler.joinOffsetMinutes,
+        scheduledMinLeadMinutes: scheduler.scheduledMinLeadMinutes,
       },
       logger: app.log,
     });

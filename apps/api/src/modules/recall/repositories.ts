@@ -13,6 +13,7 @@ import type {
   NormalizedRecording,
   NormalizedTranscript,
   StoredMeeting,
+  StoredMeetingAnalysis,
   StoredParticipant,
   StoredRecording,
   StoredTranscript,
@@ -55,6 +56,13 @@ export interface TranscriptRepository {
   getByMeeting(meetingId: string): Promise<StoredTranscript | null>;
 }
 
+export interface AnalysisRepository {
+  /** The stored Codex analysis for a meeting, or null if none exists yet. */
+  getByMeeting(meetingId: string): Promise<StoredMeetingAnalysis | null>;
+  /** Mark a meeting's analysis as queued/pending (idempotent upsert). */
+  markPending(meetingId: string): Promise<void>;
+}
+
 export interface WebhookEventRepository {
   /**
    * Atomically claim a webhook delivery for processing. Returns `true` if this
@@ -78,5 +86,6 @@ export interface Repositories {
   participants: ParticipantRepository;
   recordings: RecordingRepository;
   transcripts: TranscriptRepository;
+  analyses: AnalysisRepository;
   webhookEvents: WebhookEventRepository;
 }

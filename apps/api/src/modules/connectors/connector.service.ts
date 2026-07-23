@@ -9,7 +9,12 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/erro
 import { config } from '../../config/index.js';
 import { connectorEncryptionKey, googleOAuthConfig } from './google-oauth.js';
 
-const INCREMENTAL_CRON = '*/15 * * * *';
+/** Cron for the continuous incremental change-detection sync (configurable). */
+const INCREMENTAL_CRON = `*/${config.connectors.incrementalSyncMinutes} * * * *`;
+
+/** Stable per-connector workflow id for its incremental cron. */
+const incrementalWorkflowId = (connectorId: string): string =>
+  `connector-incremental-${connectorId}`;
 
 interface Deps {
   prisma: PrismaClient;
@@ -141,18 +146,61 @@ export class ConnectorApiService {
       taskQueue: TASK_QUEUES.connectors,
       args: [{ connectorId: connector.id }],
     });
+    // Reschedule from scratch so a reconnect always adopts the current cadence
+    // (a previously-scheduled cron keeps its old interval otherwise).
+    await this.rescheduleIncrementalSync(connector.id);
+
+    return { connectorId: connector.id };
+  }
+
+  /**
+   * Ensure a connector's incremental cron exists, without disturbing a running
+   * one (start-if-missing). Safe to call on every API boot — self-heals a lost
+   * schedule so calendar/drive/gmail keep syncing without a reconnect.
+   */
+  async ensureIncrementalSchedule(connectorId: string): Promise<void> {
     try {
       await this.deps.temporal.start(WORKFLOW_TYPES.incrementalSync, {
-        workflowId: `connector-incremental-${connector.id}`,
+        workflowId: incrementalWorkflowId(connectorId),
         taskQueue: TASK_QUEUES.connectors,
-        args: [{ connectorId: connector.id }],
+        args: [{ connectorId }],
         cronSchedule: INCREMENTAL_CRON,
       });
     } catch {
-      // Already scheduled from a previous connect — that's fine.
+      // Already scheduled — leave the running cron in place.
     }
+  }
 
-    return { connectorId: connector.id };
+  /**
+   * Force the incremental cron to (re)start at the current interval, replacing
+   * any existing schedule. Used on connect and when the cadence changes.
+   */
+  async rescheduleIncrementalSync(connectorId: string): Promise<void> {
+    try {
+      await this.deps.temporal.terminate(
+        incrementalWorkflowId(connectorId),
+        'rescheduling incremental sync',
+      );
+    } catch {
+      // No existing schedule to replace — fine.
+    }
+    await this.ensureIncrementalSchedule(connectorId);
+  }
+
+  /**
+   * On boot, make sure every connected connector has its incremental cron
+   * running (start-if-missing). Keeps sync continuous across restarts without
+   * the user reconnecting.
+   */
+  async reconcileIncrementalSchedules(): Promise<number> {
+    const connectors = await this.deps.prisma.connector.findMany({
+      where: { status: { notIn: ['DISCONNECTED', 'REVOKED'] }, deletedAt: null },
+      select: { id: true },
+    });
+    for (const c of connectors) {
+      await this.ensureIncrementalSchedule(c.id);
+    }
+    return connectors.length;
   }
 
   async disconnect(organizationId: string, connectorId: string) {

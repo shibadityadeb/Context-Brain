@@ -9,7 +9,17 @@ import { config } from '../config/index.js';
  */
 export const QUEUE_NAMES = {
   system: 'system',
+  meetingAnalysis: 'meeting-analysis',
 } as const;
+
+/** Job name for a meeting-transcript → Codex analysis job on `meetingAnalysis`. */
+export const MEETING_ANALYSIS_JOB = 'analyze-meeting' as const;
+
+/** Payload of a {@link MEETING_ANALYSIS_JOB} job (producer ↔ worker contract). */
+export interface MeetingAnalysisJob extends Record<string, unknown> {
+  meetingId: string;
+  organizationId: string | null;
+}
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 const DEFAULT_JOB_OPTIONS: JobsOptions = {

@@ -1055,6 +1055,185 @@ export const meetingApi = {
   },
 };
 
+// ── Recall.ai meeting pipeline ───────────────────────────────────────────────
+// The Meetings tab is backed by the Recall pipeline: a bot auto-joins each
+// calendar Meet, records + transcribes it, and Codex analyzes the transcript.
+
+export type RecallMeetingStatus =
+  'scheduled' | 'joining' | 'waiting' | 'in_call' | 'recording' | 'done' | 'failed';
+
+export type RecallSimpleStatus = 'pending' | 'done' | 'failed';
+export type RecallAnalysisStatus = 'pending' | 'processing' | 'done' | 'failed';
+
+export interface RecallMeeting {
+  id: string;
+  externalId: string;
+  organizationId: string | null;
+  externalMeetingId: string | null;
+  provider: string;
+  title: string | null;
+  meetingUrl: string | null;
+  botName: string | null;
+  platform: string | null;
+  status: RecallMeetingStatus;
+  scheduledStart: string | null;
+  joinedAt: string | null;
+  endedAt: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecallParticipant {
+  id: string;
+  platformId: string | null;
+  name: string;
+  isHost: boolean;
+  joinedAt: string | null;
+  leftAt: string | null;
+}
+
+export interface RecallRecording {
+  id: string;
+  externalId: string;
+  status: RecallSimpleStatus;
+  startedAt: string | null;
+  completedAt: string | null;
+  mediaUrl: string | null;
+  mediaExpiresAt: string | null;
+  durationSeconds: number | null;
+}
+
+export interface RecallAnalysis {
+  status: RecallAnalysisStatus;
+  summary: string | null;
+  actionItems: Array<{ title: string; owner?: string | null }>;
+  decisions: Array<{ decision: string; detail?: string | null }>;
+  topics: string[];
+  model: string | null;
+  error: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface RecallMeetingDetail {
+  meeting: RecallMeeting;
+  participants: RecallParticipant[];
+  recordings: RecallRecording[];
+  transcript: {
+    status: RecallSimpleStatus;
+    provider: string | null;
+    segmentCount: number;
+    durationMs: number | null;
+  } | null;
+  analysis: RecallAnalysis | null;
+}
+
+export interface RecallTranscriptSegment {
+  index: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+  speaker: string | null;
+  confidence: number | null;
+}
+
+export interface RecallTranscript {
+  id: string;
+  externalId: string | null;
+  status: RecallSimpleStatus;
+  provider: string | null;
+  mergedText: string | null;
+  durationMs: number | null;
+  segments: RecallTranscriptSegment[];
+}
+
+export const recallApi = {
+  list(
+    params: { status?: RecallMeetingStatus; limit?: number; offset?: number } = {},
+  ): Promise<RecallMeeting[]> {
+    return request(`/api/v1/recall/meetings${toQuery(params)}`);
+  },
+
+  get(id: string): Promise<RecallMeetingDetail> {
+    return request(`/api/v1/recall/meetings/${id}`);
+  },
+
+  transcript(id: string): Promise<RecallTranscript> {
+    return request(`/api/v1/recall/meetings/${id}/transcript`);
+  },
+};
+
+// ── Canonical, provider-agnostic meeting model ──────────────────────────────
+// The UI renders these; the Google Calendar event is the canonical meeting and
+// Recall.ai is a swappable capture attachment (see meeting.model.ts on the API).
+
+export type MeetingLifecycle =
+  | 'upcoming'
+  | 'bot_scheduled'
+  | 'joining'
+  | 'recording'
+  | 'processing_transcript'
+  | 'analysis_complete'
+  | 'completed'
+  | 'failed';
+
+export interface MeetingCapture {
+  provider: string | null;
+  status: RecallMeetingStatus | null;
+  botId: string | null;
+  recordingIds: string[];
+  transcriptId: string | null;
+  transcriptStatus: RecallSimpleStatus | null;
+  hasTranscript: boolean;
+  analysis: RecallAnalysis | null;
+}
+
+export interface Meeting {
+  id: string;
+  source: 'calendar' | 'provider';
+  title: string | null;
+  meetingUrl: string | null;
+  platform: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  status: MeetingLifecycle;
+  captured: boolean;
+  hint: string | null;
+  capture: MeetingCapture | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeetingDetailView {
+  meeting: Meeting;
+  participants: RecallParticipant[];
+  recordings: RecallRecording[];
+  transcript: {
+    status: RecallSimpleStatus;
+    provider: string | null;
+    segmentCount: number;
+    durationMs: number | null;
+  } | null;
+  analysis: RecallAnalysis | null;
+}
+
+export const meetingsApi = {
+  list(
+    params: { status?: MeetingLifecycle; limit?: number; offset?: number } = {},
+  ): Promise<Meeting[]> {
+    return request(`/api/v1/recall/meetings${toQuery(params)}`);
+  },
+
+  get(id: string): Promise<MeetingDetailView> {
+    return request(`/api/v1/recall/meetings/${encodeURIComponent(id)}`);
+  },
+
+  transcript(id: string): Promise<RecallTranscript> {
+    return request(`/api/v1/recall/meetings/${encodeURIComponent(id)}/transcript`);
+  },
+};
+
 /** WebSocket URL for a meeting's live feed (token passed as a query param). */
 export function meetingLiveUrl(id: string): string | null {
   const token = getAccessToken();
@@ -1075,6 +1254,8 @@ export interface LiveEvent {
 export interface ActivityStatus {
   active: boolean;
   documents: number;
+  /** Documents whose async knowledge extraction is currently in flight. */
+  extracting: number;
   syncing: number;
   liveMeetings: number;
   label: string;

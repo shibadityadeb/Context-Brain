@@ -25,6 +25,7 @@ function makeMeetingRepo() {
         organizationId: m.organizationId ?? existing?.organizationId ?? null,
         externalMeetingId: m.externalMeetingId ?? existing?.externalMeetingId ?? null,
         provider: m.provider ?? existing?.provider ?? 'recall',
+        title: m.title ?? existing?.title ?? null,
         meetingUrl: m.meetingUrl ?? existing?.meetingUrl ?? null,
         botName: m.botName ?? existing?.botName ?? null,
         platform: m.platform ?? existing?.platform ?? null,
@@ -66,6 +67,9 @@ function makeCalendarSource(events: UpcomingCalendarMeeting[]): CalendarEventSou
     async upcomingForOrganization() {
       return events;
     },
+    async getByCalendarEventId(_organizationId, calendarEventId) {
+      return events.find((e) => e.calendarEventId === calendarEventId) ?? null;
+    },
   };
 }
 
@@ -85,6 +89,7 @@ const config = {
   transcriptProvider: 'meeting_captions',
   lookaheadMinutes: 60,
   joinOffsetMinutes: 2,
+  scheduledMinLeadMinutes: 10,
 };
 
 function event(overrides: Partial<UpcomingCalendarMeeting> = {}): UpcomingCalendarMeeting {
@@ -209,6 +214,43 @@ describe('recall dispatch', () => {
     await service.tick();
     const arg = (client.createBot as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(arg.joinAt).toBeUndefined();
+  });
+
+  it('joins immediately when the meeting is too close for a reliable scheduled bot', async () => {
+    // 5 min out − 2 min offset = join_at only 3 min ahead, inside Recall's
+    // 10-min scheduled-bot guarantee window → must dispatch ad-hoc (no join_at)
+    // so the bot actually joins. This is the auto-join root-cause fix.
+    const { repo } = makeMeetingRepo();
+    const client = makeClient();
+    const service = new RecallDispatchService({
+      calendarSource: makeCalendarSource([event({ startsAt: new Date(NOW + 5 * 60_000) })]),
+      client,
+      meetings: repo,
+      config,
+      logger: silentLogger,
+      now: () => NOW,
+    });
+    const summary = await service.tick();
+    expect(summary.created).toBe(1);
+    const arg = (client.createBot as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(arg.joinAt).toBeUndefined();
+  });
+
+  it('still schedules a bot with join_at when the meeting is far enough out', async () => {
+    // 15 min out − 2 min offset = 13 min ahead ≥ 10 min → a scheduled bot is safe.
+    const { repo } = makeMeetingRepo();
+    const client = makeClient();
+    const service = new RecallDispatchService({
+      calendarSource: makeCalendarSource([event({ startsAt: new Date(NOW + 15 * 60_000) })]),
+      client,
+      meetings: repo,
+      config,
+      logger: silentLogger,
+      now: () => NOW,
+    });
+    await service.tick();
+    const arg = (client.createBot as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(arg.joinAt).toBe(new Date(NOW + 13 * 60_000).toISOString());
   });
 
   it('cancels the scheduled bot when the calendar event is cancelled', async () => {

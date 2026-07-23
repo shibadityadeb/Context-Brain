@@ -331,6 +331,11 @@ model Document {
 
   currentVersion Int @default(1)
 
+  // Set when async knowledge extraction begins, cleared when it finalizes.
+  // Powers the "extracting knowledge" activity signal; a read-side staleness
+  // window means a crashed run can never leave the indicator stuck.
+  extractionStartedAt DateTime?
+
   folderId String?          @db.Uuid
   folder   Folder?          @relation(fields: [folderId], references: [id], onDelete: SetNull)
   sourceId String?          @db.Uuid
@@ -2059,6 +2064,13 @@ enum TranscriptStatus {
   FAILED // transcript.failed received
 }
 
+enum MeetingAnalysisStatus {
+  PENDING // analysis job enqueued, not yet picked up
+  PROCESSING // Codex worker is analyzing the transcript
+  DONE // analysis stored
+  FAILED // Codex run failed (see `error`)
+}
+
 enum WebhookEventStatus {
   RECEIVED // stored, not yet processed
   PROCESSED // handled successfully
@@ -2081,6 +2093,8 @@ model RecallMeeting {
   externalMeetingId String?
 
   provider   String              @default("recall")
+  // Human-readable meeting title carried from the calendar event at dispatch.
+  title      String?
   meetingUrl String?
   botName    String?
   platform   String? // "google_meet" | "zoom" | "teams" | …
@@ -2099,6 +2113,7 @@ model RecallMeeting {
   participants RecallParticipant[]
   recordings   Recording[]
   transcript   RecallTranscript?
+  analysis     RecallMeetingAnalysis?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2218,6 +2233,35 @@ model TranscriptSegment {
   @@unique([transcriptId, index])
   @@index([transcriptId, startMs])
   @@map("recall_transcript_segments")
+}
+
+/// Codex-generated analysis of a meeting (one per meeting), produced
+/// asynchronously by the meeting-analysis worker once a transcript is
+/// available. Holds the summary, action items, decisions and key topics.
+/// `actionItems`/`decisions`/`topics` are JSON arrays so the shape can evolve
+/// without a migration.
+model RecallMeetingAnalysis {
+  id String @id @default(uuid()) @db.Uuid
+
+  meetingId String        @unique @db.Uuid
+  meeting   RecallMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  status MeetingAnalysisStatus @default(PENDING)
+
+  summary     String? @db.Text
+  actionItems Json    @default("[]")
+  decisions   Json    @default("[]")
+  topics      Json    @default("[]")
+
+  // Backend id that produced the analysis (e.g. "codex"), for observability.
+  model String?
+  // Failure detail when status is FAILED.
+  error String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("recall_meeting_analyses")
 }
 
 /// Idempotency + audit ledger for inbound Recall webhooks. `eventId` is the

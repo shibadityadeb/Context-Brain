@@ -86,6 +86,14 @@ const envSchema = z.object({
     .optional(),
   CONNECTOR_TASK_QUEUE: z.string().default('brain-connectors'),
   CONNECTOR_WORKER_HEALTH_URL: z.string().url().default('http://localhost:4101/health'),
+  // How often the incremental change-detection cron runs (Drive/Gmail/Calendar
+  // delta APIs via stored sync tokens). Short by default so calendar edits show
+  // up continuously without a full resync; push/watch channels need a public
+  // HTTPS webhook that isn't available in local dev.
+  CONNECTOR_INCREMENTAL_SYNC_MINUTES: z.coerce.number().int().positive().max(59).default(2),
+  // Ignore in-flight knowledge-extraction markers older than this in the
+  // activity indicator, so a crashed run can't leave it spinning forever.
+  ACTIVITY_EXTRACTION_STALE_MINUTES: z.coerce.number().int().positive().max(60).default(5),
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 
   // Phase 4 — Meeting Intelligence. The API starts/steers the durable meeting
@@ -136,6 +144,11 @@ const envSchema = z.object({
   RECALL_SCHEDULER_LOOKAHEAD_MINUTES: z.coerce.number().int().positive().default(60),
   // Minutes before scheduled start the bot should join (join_at = start − this).
   BOT_JOIN_OFFSET_MINUTES: z.coerce.number().int().nonnegative().default(2),
+  // Minimum lead time (minutes) a `join_at` must be in the future for Recall to
+  // GUARANTEE a scheduled bot joins on time. Recall's documented threshold is
+  // 10 minutes; below it a scheduled bot may silently never join, so we join
+  // immediately (ad-hoc, no join_at) instead. See dispatch.service.ts.
+  RECALL_SCHEDULED_MIN_LEAD_MINUTES: z.coerce.number().int().nonnegative().default(10),
 });
 
 const parsed = envSchema.safeParse(process.env);

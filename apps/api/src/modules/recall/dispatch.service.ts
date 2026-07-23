@@ -21,6 +21,15 @@ export interface DispatchConfig {
   transcriptProvider: string;
   lookaheadMinutes: number;
   joinOffsetMinutes: number;
+  /**
+   * Minimum lead (minutes) a `join_at` must be in the future for Recall to
+   * guarantee a scheduled bot joins on time. When the computed join is closer
+   * than this (or already past), we omit `join_at` and dispatch an immediate
+   * (ad-hoc) bot instead — it waits in the call — so an imminent meeting is
+   * never missed by a scheduled bot that silently doesn't join. Default 10
+   * (Recall's documented threshold).
+   */
+  scheduledMinLeadMinutes: number;
 }
 
 export interface DispatchDeps {
@@ -134,8 +143,13 @@ export class RecallDispatchService {
     if (startMs < nowMs - offsetMs - 60_000) return 'skipped';
 
     const joinAtMs = startMs - offsetMs;
-    // Recall requires join_at in the future; if the lead already elapsed, join now.
-    const joinAtIso = joinAtMs > nowMs ? new Date(joinAtMs).toISOString() : undefined;
+    const minLeadMs = this.deps.config.scheduledMinLeadMinutes * 60_000;
+    // Recall only GUARANTEES a scheduled bot joins on time when `join_at` is at
+    // least `scheduledMinLeadMinutes` in the future. Inside that window (or
+    // already past), a scheduled bot can silently never join — the root cause of
+    // "bot created but doesn't join". So we omit `join_at` and dispatch an
+    // immediate (ad-hoc) bot instead: it joins now and waits in the call.
+    const joinAtIso = joinAtMs - nowMs >= minLeadMs ? new Date(joinAtMs).toISOString() : undefined;
 
     // Already dispatched: dedup, or reschedule if the start time moved.
     if (existing) {
@@ -179,6 +193,7 @@ export class RecallDispatchService {
       organizationId: event.organizationId,
       externalMeetingId: event.calendarEventId,
       provider: 'recall',
+      title: event.title,
       meetingUrl: event.meetingUrl,
       botName: this.deps.config.botName,
       platform: 'google_meet',
@@ -187,8 +202,12 @@ export class RecallDispatchService {
     });
 
     this.deps.logger.info(
-      { calendarEventId: event.calendarEventId, botId: bot.id, joinAt: joinAtIso ?? 'now' },
-      'recall bot scheduled',
+      {
+        calendarEventId: event.calendarEventId,
+        botId: bot.id,
+        joinAt: joinAtIso ?? 'now (imminent — ad-hoc join)',
+      },
+      'recall bot dispatched',
     );
     return 'created';
   }

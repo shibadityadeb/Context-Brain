@@ -11,6 +11,7 @@ import type {
   StoredTranscript,
 } from '../src/modules/recall/domain.js';
 import type {
+  AnalysisRepository,
   ListMeetingsFilter,
   MeetingRepository,
   ParticipantRepository,
@@ -33,6 +34,7 @@ class MemMeetingRepo implements MeetingRepository {
       organizationId: m.organizationId ?? existing?.organizationId ?? null,
       externalMeetingId: m.externalMeetingId ?? existing?.externalMeetingId ?? null,
       provider: m.provider ?? existing?.provider ?? 'recall',
+      title: m.title ?? existing?.title ?? null,
       meetingUrl: m.meetingUrl ?? existing?.meetingUrl ?? null,
       botName: m.botName ?? existing?.botName ?? null,
       platform: m.platform ?? existing?.platform ?? null,
@@ -165,12 +167,35 @@ class MemWebhookRepo implements WebhookEventRepository {
   }
 }
 
+class MemAnalysisRepo implements AnalysisRepository {
+  store = new Map<string, string>(); // meetingId → status
+  async getByMeeting(meetingId: string) {
+    const status = this.store.get(meetingId);
+    if (!status) return null;
+    return {
+      status: status as 'pending' | 'processing' | 'done' | 'failed',
+      summary: null,
+      actionItems: [],
+      decisions: [],
+      topics: [],
+      model: null,
+      error: null,
+      createdAt: null,
+      updatedAt: null,
+    };
+  }
+  async markPending(meetingId: string) {
+    this.store.set(meetingId, 'pending');
+  }
+}
+
 function makeRepos(): Repositories & { meetings: MemMeetingRepo } {
   return {
     meetings: new MemMeetingRepo(),
     participants: new MemParticipantRepo(),
     recordings: new MemRecordingRepo(),
     transcripts: new MemTranscriptRepo(),
+    analyses: new MemAnalysisRepo(),
     webhookEvents: new MemWebhookRepo(),
   };
 }
