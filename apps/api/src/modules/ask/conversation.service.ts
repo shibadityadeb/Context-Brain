@@ -1,6 +1,6 @@
 import type { ConversationScope, Prisma, PrismaClient } from '@prisma/client';
 import { NotFoundError } from '../../utils/errors.js';
-import { AccessControlService } from './access-control.service.js';
+import type { AccessControlService } from './access-control.service.js';
 import type { AskSource } from './response-formatter.js';
 import type { ApiConversationScope, ListConversationsQuery } from './ask.conversation.schemas.js';
 
