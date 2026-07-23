@@ -94,6 +94,11 @@ const envSchema = z.object({
   // Ignore in-flight knowledge-extraction markers older than this in the
   // activity indicator, so a crashed run can't leave it spinning forever.
   ACTIVITY_EXTRACTION_STALE_MINUTES: z.coerce.number().int().positive().max(60).default(5),
+  // Ask Brain web search. 'duckduckgo' is keyless and on by default; 'tavily'
+  // or 'brave' give richer results but need WEB_SEARCH_API_KEY; 'none' disables.
+  WEB_SEARCH_PROVIDER: z.enum(['duckduckgo', 'tavily', 'brave', 'none']).default('duckduckgo'),
+  WEB_SEARCH_API_KEY: z.string().optional(),
+  WEB_SEARCH_MAX_RESULTS: z.coerce.number().int().positive().max(10).default(4),
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 
   // Phase 4 — Meeting Intelligence. The API starts/steers the durable meeting

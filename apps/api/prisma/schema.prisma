@@ -39,6 +39,10 @@ model User {
   knowledgeSources KnowledgeSource[]
   documents        Document[]
 
+  conversations            Conversation[]            @relation("ConversationCreator")
+  conversationMessages     ConversationMessage[]     @relation("ConversationMessageAuthor")
+  conversationParticipants ConversationParticipant[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -64,6 +68,8 @@ model Organization {
 
   connectors     Connector[]
   connectorLinks OrganizationConnector[]
+
+  conversations Conversation[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2287,4 +2293,95 @@ model WebhookEvent {
   @@index([eventType])
   @@index([recallBotId])
   @@map("recall_webhook_events")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ask Brain — collaborative conversations (Personal + Team)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ConversationScope {
+  PERSONAL // private to the creating user
+  TEAM // shared across the organization
+}
+
+// Future-ready per-user permissions for shared (Team) conversations. Enforcement
+// in v1 stays simple (Personal = creator only, Team = any org member); this table
+// lets viewer/editor/admin sharing land later without a schema change.
+enum ConversationRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model Conversation {
+  id String @id @default(uuid()) @db.Uuid
+
+  title String
+  scope ConversationScope
+
+  isArchived    Boolean   @default(false)
+  lastMessageAt DateTime?
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // The user who created the conversation (owner for Personal + Team).
+  createdBy      String       @db.Uuid
+  creator        User         @relation("ConversationCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  messages     ConversationMessage[]
+  participants ConversationParticipant[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, scope, isArchived])
+  @@index([createdBy])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // "user" | "assistant" (provider-agnostic; kept as a string for flexibility).
+  role    String
+  content String @db.Text
+  // Retrieved sources cited by an assistant turn: [{ id, kind, type, title }].
+  sources Json?
+
+  // Author of a user turn (null for assistant turns).
+  authorId String? @db.Uuid
+  author   User?   @relation("ConversationMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([organizationId])
+  @@map("conversation_messages")
+}
+
+model ConversationParticipant {
+  id String @id @default(uuid()) @db.Uuid
+
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String       @db.Uuid
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role ConversationRole @default(VIEWER)
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([conversationId, userId])
+  @@index([organizationId, userId])
+  @@map("conversation_participants")
 }
