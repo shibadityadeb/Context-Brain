@@ -20,6 +20,7 @@ import knowledgeRoutes from './modules/knowledge/knowledge.routes.js';
 import knowledgeGraphRoutes from './modules/knowledge-graph/knowledge-graph.routes.js';
 import memoryRoutes from './modules/memory/memory.routes.js';
 import askRoutes from './modules/ask/ask.routes.js';
+import actionRoutes from './modules/actions/action.routes.js';
 import connectorRoutes from './modules/connectors/connector.routes.js';
 import meetingRoutes from './modules/meetings/meeting.routes.js';
 import recallRoutes from './modules/recall/recall.routes.js';
@@ -74,6 +75,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(knowledgeGraphRoutes, { prefix: '/api/v1/knowledge' });
   await app.register(memoryRoutes, { prefix: '/api/v1' });
   await app.register(askRoutes, { prefix: '/api/v1/ask' });
+  await app.register(actionRoutes, { prefix: '/api/v1/actions' });
   await app.register(connectorRoutes, { prefix: '/api/v1/connectors' });
   await app.register(meetingRoutes, { prefix: '/api/v1/meetings' });
   await app.register(recallRoutes, { prefix: '/api/v1/recall' });

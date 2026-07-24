@@ -17,6 +17,7 @@ import {
   Sparkles,
   Upload,
   Users,
+  Zap,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -43,6 +44,7 @@ export const NAV: NavGroup[] = [
     items: [
       { href: '/home', label: 'Home', icon: Home },
       { href: '/ask', label: 'Ask Brain', icon: Sparkles },
+      { href: '/actions', label: 'Actions', icon: Zap },
     ],
   },
   {

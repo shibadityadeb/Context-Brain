@@ -43,6 +43,9 @@ model User {
   conversationMessages     ConversationMessage[]     @relation("ConversationMessageAuthor")
   conversationParticipants ConversationParticipant[]
 
+  actions         Action[] @relation("ActionCreator")
+  approvedActions Action[] @relation("ActionApprover")
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -70,6 +73,7 @@ model Organization {
   connectorLinks OrganizationConnector[]
 
   conversations Conversation[]
+  actions       Action[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -2384,4 +2388,171 @@ model ConversationParticipant {
   @@unique([conversationId, userId])
   @@index([organizationId, userId])
   @@map("conversation_participants")
+}
+
+// ─────────────────────────── Action Layer (Phase 6) ─────────────────────────
+// The Action Layer converts knowledge into executable work. Codex is the only
+// reasoning engine (it plans) and OpenClaw is the only execution engine (it
+// runs); every action is persisted here so the Context Brain remembers what was
+// done. Business logic never touches OpenClaw directly — an adapter isolates it.
+
+enum ActionType {
+  CALENDAR_MANAGEMENT
+  EMAIL_DRAFT
+  EMAIL_SEND
+  MEETING_SCHEDULE
+  BROWSER_AUTOMATION
+  WEB_RESEARCH
+  FORM_FILLING
+  FILE_MANAGEMENT
+  DOCUMENT_GENERATION
+  TASK_CREATION
+  FOLLOW_UP_REMINDER
+  OTHER // extension point — new action types need no schema change
+}
+
+enum ActionStatus {
+  PLANNING // Codex is generating the plan
+  NEEDS_INPUT // Codex is missing required info and is asking the user
+  PENDING_APPROVAL // plan ready, awaiting the user's decision
+  APPROVED // approved; execution is about to start
+  RUNNING // OpenClaw is executing the plan
+  COMPLETED
+  FAILED
+  REJECTED // the user rejected the plan
+  CANCELLED
+}
+
+enum ApprovalMode {
+  MANUAL // requires explicit user approval before execution (v1 default)
+  AUTO // reserved for a future auto-execute mode (not enabled in v1)
+}
+
+enum ActionStepStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum ActionLogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+model Action {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      String       @db.Uuid
+  creator        User         @relation("ActionCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  // What the user asked for (verbatim) and a short generated title.
+  request String     @db.Text
+  title   String
+  type    ActionType   @default(OTHER)
+  status  ActionStatus @default(PLANNING)
+
+  // Codex's plan (steps live in ActionStep).
+  goal            String?  @db.Text
+  reasoning       String?  @db.Text
+  estimatedImpact String?  @db.Text
+  estimatedTools  String[] // OpenClaw tools Codex expects the plan to use
+
+  approvalMode ApprovalMode @default(MANUAL)
+  approvedBy   String?      @db.Uuid
+  approver     User?        @relation("ActionApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  // Retrieved context that grounded the plan: [{ id, kind, type, title }].
+  contextSources Json?
+  // Open questions Codex needs answered before it will assume anything:
+  // [{ field, question, hint? }]. Cleared once answered + re-planned.
+  clarifications Json?
+  // Structured final result once executed.
+  result Json?
+  error  String? @db.Text
+
+  // Links back into the Context Brain so retrieval can answer questions like
+  // "what happened after yesterday's meeting?".
+  relatedMeetingIds      String[] @db.Uuid
+  relatedDocumentIds     String[] @db.Uuid
+  relatedConversationIds String[] @db.Uuid
+
+  steps ActionStep[]
+  logs  ActionLog[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  approvedAt  DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  deletedAt   DateTime?
+
+  @@index([organizationId, status])
+  @@index([createdBy])
+  @@index([organizationId, type])
+  @@map("actions")
+}
+
+model ActionStep {
+  id String @id @default(uuid()) @db.Uuid
+
+  actionId String @db.Uuid
+  action   Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  index       Int
+  title       String
+  description String? @db.Text
+  // The OpenClaw tool this step is expected to use (an estimate; the adapter
+  // maps it to a concrete capability at execution time).
+  tool String?
+  // Concrete, editable parameters the tool executes with — e.g. email.send:
+  // { to, subject, body }; calendar.write: { title, start, end, attendees };
+  // task.create: { title, priority, due }. The user reviews/edits these in the
+  // approval preview before anything runs, so real side effects are confirmed.
+  params Json?
+  // A step that pauses for its own approval checkpoint (e.g. "send the email").
+  requiresApproval Boolean @default(false)
+
+  status ActionStepStatus @default(PENDING)
+  output Json?
+  error  String? @db.Text
+
+  organizationId String @db.Uuid
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  logs ActionLog[]
+
+  @@unique([actionId, index])
+  @@index([actionId])
+  @@map("action_steps")
+}
+
+model ActionLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  actionId String @db.Uuid
+  action   Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  // Optional step association — null for action-level lifecycle logs.
+  stepId String?     @db.Uuid
+  step   ActionStep? @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  level   ActionLogLevel @default(INFO)
+  message String         @db.Text
+  data    Json?
+
+  organizationId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@index([actionId, createdAt])
+  @@map("action_logs")
 }

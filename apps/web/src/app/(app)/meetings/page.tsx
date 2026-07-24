@@ -21,7 +21,16 @@ const COMPLETED_STATUSES = new Set<MeetingLifecycle>([
   'processing_transcript',
   'analysis_complete',
   'completed',
+  'ended',
   'failed',
+]);
+/** Past meetings where a bot-joined indicator is meaningful. */
+const PAST_STATUSES = new Set<MeetingLifecycle>([
+  'recording',
+  'processing_transcript',
+  'analysis_complete',
+  'completed',
+  'ended',
 ]);
 
 /** Human labels for the canonical lifecycle. */
@@ -33,6 +42,7 @@ const STATUS_LABELS: Record<MeetingLifecycle, string> = {
   processing_transcript: 'Processing Transcript',
   analysis_complete: 'Analysis Complete',
   completed: 'Completed',
+  ended: 'Ended',
   failed: 'Failed',
 };
 
@@ -69,6 +79,16 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
         {new Date(when).toLocaleString()}
         {meeting.platform ? ` · ${meeting.platform.replace('_', ' ')}` : ''}
       </p>
+      {PAST_STATUSES.has(meeting.status) && (
+        <p className="mt-2 inline-flex items-center gap-1.5 text-xs">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${meeting.botJoined ? 'bg-success' : 'bg-muted-foreground/50'}`}
+          />
+          <span className={meeting.botJoined ? 'text-success' : 'text-muted-foreground'}>
+            {meeting.botJoined ? 'Notetaker bot joined' : 'Bot did not join'}
+          </span>
+        </p>
+      )}
       {meeting.hint && <p className="mt-2 text-xs text-muted-foreground">{meeting.hint}</p>}
     </Link>
   );

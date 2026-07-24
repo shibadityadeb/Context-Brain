@@ -238,6 +238,7 @@ export class MeetingsService {
   private lifecycleFor(
     row: StoredMeeting | null,
     startsAt: Date | null,
+    endsAt: Date | null,
     contexts: Map<string, CaptureContext>,
   ): MeetingLifecycle {
     const ctx = row ? contexts.get(row.id) : undefined;
@@ -250,8 +251,20 @@ export class MeetingsService {
           }
         : null,
       startsAt,
+      endsAt,
       now: this.now(),
     });
+  }
+
+  /** Whether the notetaker bot actually joined the call. */
+  private botJoined(row: StoredMeeting | null): boolean {
+    if (!row) return false;
+    return (
+      row.joinedAt !== null ||
+      row.status === 'in_call' ||
+      row.status === 'recording' ||
+      row.status === 'done'
+    );
   }
 
   private toCanonicalFromCalendar(
@@ -259,7 +272,7 @@ export class MeetingsService {
     capture: StoredMeeting | null,
     contexts: Map<string, CaptureContext>,
   ): Meeting {
-    const status = this.lifecycleFor(capture, ev.startsAt, contexts);
+    const status = this.lifecycleFor(capture, ev.startsAt, ev.endsAt, contexts);
     const startsAt =
       ev.startsAt ?? (capture?.scheduledStart ? new Date(capture.scheduledStart) : null);
     return {
@@ -272,6 +285,7 @@ export class MeetingsService {
       endsAt: ev.endsAt ? ev.endsAt.toISOString() : null,
       status,
       captured: capture !== null,
+      botJoined: this.botJoined(capture),
       hint: capture === null && status === 'upcoming' ? CAPTURE_PENDING_HINT : null,
       capture: capture ? this.buildCapture(capture, contexts) : null,
       createdAt:
@@ -286,7 +300,8 @@ export class MeetingsService {
     contexts: Map<string, CaptureContext>,
   ): Meeting {
     const startsAt = row.scheduledStart ? new Date(row.scheduledStart) : null;
-    const status = this.lifecycleFor(row, startsAt, contexts);
+    const endsAt = row.endedAt ? new Date(row.endedAt) : null;
+    const status = this.lifecycleFor(row, startsAt, endsAt, contexts);
     return {
       id: row.externalMeetingId ?? row.externalId,
       source: 'provider',
@@ -297,6 +312,7 @@ export class MeetingsService {
       endsAt: row.endedAt,
       status,
       captured: true,
+      botJoined: this.botJoined(row),
       hint: null,
       capture: this.buildCapture(row, contexts),
       createdAt: row.createdAt,

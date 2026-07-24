@@ -23,7 +23,19 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/presentations.readonly',
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/gmail.readonly',
+  // Write scopes for the Action Layer — the Brain can create calendar events
+  // (incl. Meet links) and send email once the user re-consents. Still
+  // least-privilege: calendar.events (not full calendar) and gmail.send (send
+  // only, no read of the whole mailbox beyond the readonly scope above).
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/gmail.send',
 ] as const;
+
+/** The subset of scopes required to perform Action-Layer side effects. */
+export const GOOGLE_WRITE_SCOPES = {
+  calendar: 'https://www.googleapis.com/auth/calendar.events',
+  gmailSend: 'https://www.googleapis.com/auth/gmail.send',
+} as const;
 
 /**
  * Offline access (refresh token) + forced consent so a refresh token is

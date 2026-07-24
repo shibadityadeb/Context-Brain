@@ -132,6 +132,14 @@ export const config = {
     apiKey: env.WEB_SEARCH_API_KEY,
     maxResults: env.WEB_SEARCH_MAX_RESULTS,
   },
+  // Action Layer execution engine (OpenClaw only, isolated behind the adapter).
+  openclaw: {
+    mode: env.OPENCLAW_MODE,
+    cliPath: env.OPENCLAW_CLI_PATH,
+    timeoutMs: env.OPENCLAW_TIMEOUT_MS,
+    stepDelayMs: env.OPENCLAW_STEP_DELAY_MS,
+    workspaceDir: env.OPENCLAW_WORKSPACE_DIR,
+  },
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,
     workerHealthUrl: env.CONNECTOR_WORKER_HEALTH_URL,

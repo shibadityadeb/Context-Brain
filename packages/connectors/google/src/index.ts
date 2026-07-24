@@ -5,6 +5,7 @@ export {
   GOOGLE_OAUTH_ENDPOINTS,
   GOOGLE_PROVIDER,
   GOOGLE_SCOPES,
+  GOOGLE_WRITE_SCOPES,
   GOOGLE_SERVICES,
   type GoogleService,
 } from './config.js';

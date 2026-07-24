@@ -38,6 +38,7 @@ const STATUS_LABELS: Record<MeetingLifecycle, string> = {
   processing_transcript: 'Processing Transcript',
   analysis_complete: 'Analysis Complete',
   completed: 'Completed',
+  ended: 'Ended',
   failed: 'Failed',
 };
 

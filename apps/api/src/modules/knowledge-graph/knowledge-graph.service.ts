@@ -230,6 +230,33 @@ export class KnowledgeGraphService {
     };
   }
 
+  /**
+   * Soft-delete a knowledge object (task, entity, decision, …) so the user has
+   * direct control over their graph. Its relationships are soft-deleted too so
+   * dangling edges vanish from the graph; provenance (mentions, versions) is
+   * kept. Organization-isolated; 404 if it isn't the caller's.
+   */
+  async deleteObject(organizationId: string, id: string): Promise<{ deleted: boolean }> {
+    const object = await this.deps.prisma.knowledgeObject.findFirst({
+      where: { id, organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!object) throw new NotFoundError('Knowledge object not found');
+
+    const now = new Date();
+    await this.deps.prisma.$transaction([
+      this.deps.prisma.knowledgeRelationship.updateMany({
+        where: { organizationId, deletedAt: null, OR: [{ fromId: id }, { toId: id }] },
+        data: { deletedAt: now },
+      }),
+      this.deps.prisma.knowledgeObject.update({
+        where: { id },
+        data: { deletedAt: now },
+      }),
+    ]);
+    return { deleted: true };
+  }
+
   async getRelationships(organizationId: string, id: string) {
     const object = await this.deps.prisma.knowledgeObject.findFirst({
       where: { id, organizationId },

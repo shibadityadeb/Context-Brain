@@ -136,6 +136,34 @@ export const personalResourceSource: RetrievalSource = {
   },
 };
 
+/**
+ * The user's own executed actions (Action Layer) — so the Brain can recall what
+ * it has done: "what actions have I completed this week?", "what happened after
+ * yesterday's meeting?". Personal-scope only, filtered to the actor as creator,
+ * so a Team chat never surfaces another person's actions.
+ */
+export const actionSource: RetrievalSource = {
+  name: 'actions',
+  scopes: ['personal'],
+  async search(ctx) {
+    if (!ctx.userId) return [];
+    const rows = await ctx.prisma.action.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        createdBy: ctx.userId,
+        deletedAt: null,
+        OR: containsAny(ctx.terms, ['title', 'request', 'goal']),
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: ctx.limit,
+      select: { id: true, type: true, title: true, goal: true, status: true },
+    });
+    return rows.map((r, i) =>
+      rank('action', r.type, r.title, `${r.status} — ${r.goal ?? ''}`.trim(), r.id, i),
+    );
+  },
+};
+
 // ── Future slots (design only — not populated in v1) ─────────────────────────
 // Personal notes and per-user memories will plug in here once those models
 // exist; the conversation system and prompt builder won't need to change.
@@ -148,6 +176,7 @@ export const DEFAULT_SOURCES: RetrievalSource[] = [
   memorySource,
   meetingSource,
   personalResourceSource,
+  actionSource,
 ];
 
 export type { RetrievalSource, RetrievalContext, RetrievedItem };
