@@ -101,6 +101,22 @@ const envSchema = z.object({
   WEB_SEARCH_MAX_RESULTS: z.coerce.number().int().positive().max(10).default(4),
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 
+  // Phase 6 — Action Layer. OpenClaw is the ONLY execution engine, kept behind
+  // an adapter. 'simulated' (default) records a deterministic dry-run for each
+  // step without touching the outside world; 'cli' shells out to the OpenClaw
+  // binary. Planning is always Codex (config.llm) — OpenClaw never plans.
+  // 'builtin' = real side effects via built-in tool handlers (tasks, docs,
+  // files, Google calendar/gmail); 'simulated' = safe dry-run; 'cli' = OpenClaw
+  // binary. Default is builtin so approved actions actually do the work.
+  OPENCLAW_MODE: z.enum(['builtin', 'simulated', 'cli']).default('builtin'),
+  OPENCLAW_CLI_PATH: z.string().default('openclaw'),
+  OPENCLAW_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // Delay between simulated steps so the "Running" state is observable in the UI.
+  OPENCLAW_STEP_DELAY_MS: z.coerce.number().int().nonnegative().max(10_000).default(0),
+  // Sandbox root for file-management tools — reads/writes are confined here so
+  // an action can never touch paths outside its workspace.
+  OPENCLAW_WORKSPACE_DIR: z.string().default('.openclaw-workspace'),
+
   // Phase 4 — Meeting Intelligence. The API starts/steers the durable meeting
   // workflows and authenticates the bot's transcript callbacks. All timings
   // fall back to the documented meeting-engine defaults when unset.

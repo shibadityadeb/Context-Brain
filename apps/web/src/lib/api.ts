@@ -33,8 +33,12 @@ async function request<T>(path: string, init: RequestInit = {}, retryOn401 = tru
     // Send the httpOnly refresh cookie along with every auth request.
     credentials: 'include',
     headers: {
-      // FormData bodies set their own multipart boundary header.
-      ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      // Only declare a JSON content-type when we actually send a JSON body.
+      // A bodyless request (e.g. DELETE) with this header trips Fastify's
+      // "empty JSON body" guard (400). FormData sets its own boundary header.
+      ...(init.body && !(init.body instanceof FormData)
+        ? { 'Content-Type': 'application/json' }
+        : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
@@ -583,6 +587,10 @@ export const knowledgeGraphApi = {
     return request(`/api/v1/knowledge/entity/${id}`);
   },
 
+  remove(id: string): Promise<{ deleted: boolean }> {
+    return request(`/api/v1/knowledge/${id}`, { method: 'DELETE' });
+  },
+
   getRelationships(id: string): Promise<{
     object: { id: string; title: string; type: string };
     relationships: KnowledgeRelationshipEdge[];
@@ -872,7 +880,7 @@ export const memoryApi = {
 // ── Ask Brain (conversational) ────────────────────────────────────
 
 export type AskSourceKind =
-  'knowledge' | 'memory' | 'meeting' | 'document' | 'email' | 'calendar' | 'web';
+  'knowledge' | 'memory' | 'meeting' | 'document' | 'email' | 'calendar' | 'web' | 'action';
 
 export interface AskSource {
   id: string;
@@ -992,6 +1000,175 @@ export const conversationApi = {
       method: 'POST',
       body: JSON.stringify({ question }),
     });
+  },
+};
+
+// ── Action Layer (Phase 6) ────────────────────────────────────────
+// Codex plans, the user approves, OpenClaw executes, and every action is
+// recorded in the Context Brain.
+
+export type ActionView =
+  'active' | 'pending' | 'running' | 'completed' | 'failed' | 'history' | 'all';
+
+export type ActionStatus =
+  | 'PLANNING'
+  | 'NEEDS_INPUT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+export interface Clarification {
+  field: string;
+  question: string;
+  hint?: string | null;
+}
+
+export type ActionStepStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+
+export interface ActionStepView {
+  id: string;
+  index: number;
+  title: string;
+  description: string | null;
+  tool: string | null;
+  params: Record<string, unknown> | null;
+  requiresApproval: boolean;
+  status: ActionStepStatus;
+  output: unknown;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface ActionLogView {
+  id: string;
+  stepId: string | null;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+  message: string;
+  data: unknown;
+  createdAt: string;
+}
+
+export interface ActionContextSource {
+  id: string;
+  kind: string;
+  type: string;
+  title: string;
+}
+
+export interface ActionSummary {
+  id: string;
+  title: string;
+  request: string;
+  type: string;
+  status: ActionStatus;
+  approvalMode: 'MANUAL' | 'AUTO';
+  goal: string | null;
+  estimatedImpact: string | null;
+  estimatedTools: string[];
+  createdBy: string;
+  creatorName: string | null;
+  stepCount: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface ActionDetail extends ActionSummary {
+  reasoning: string | null;
+  contextSources: ActionContextSource[];
+  clarifications: Clarification[];
+  result: unknown;
+  error: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  relatedMeetingIds: string[];
+  relatedDocumentIds: string[];
+  relatedConversationIds: string[];
+  steps: ActionStepView[];
+  logs: ActionLogView[];
+}
+
+export interface ActionList {
+  items: ActionSummary[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  counts: Record<string, number>;
+}
+
+export interface EditActionStep {
+  title: string;
+  description?: string | null;
+  tool?: string | null;
+  params?: Record<string, unknown> | null;
+  requiresApproval?: boolean;
+}
+
+export const actionApi = {
+  list(
+    params: {
+      view?: ActionView;
+      type?: string;
+      search?: string;
+      relatedMeetingId?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<ActionList> {
+    return request(`/api/v1/actions${toQuery({ ...params })}`);
+  },
+
+  get(id: string): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}`);
+  },
+
+  create(body: {
+    request: string;
+    relatedMeetingIds?: string[];
+    relatedDocumentIds?: string[];
+    relatedConversationIds?: string[];
+  }): Promise<ActionDetail> {
+    return request('/api/v1/actions', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  approve(id: string): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}/approve`, { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  answer(id: string, answers: Array<{ field: string; value: string }>): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}/answers`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
+    });
+  },
+
+  reject(id: string, reason?: string): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  edit(
+    id: string,
+    body: { title?: string; goal?: string; estimatedImpact?: string; steps?: EditActionStep[] },
+  ): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  cancel(id: string): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  remove(id: string): Promise<{ deleted: boolean }> {
+    return request(`/api/v1/actions/${id}`, { method: 'DELETE' });
   },
 };
 
@@ -1279,6 +1456,7 @@ export type MeetingLifecycle =
   | 'processing_transcript'
   | 'analysis_complete'
   | 'completed'
+  | 'ended'
   | 'failed';
 
 export interface MeetingCapture {
@@ -1302,6 +1480,8 @@ export interface Meeting {
   endsAt: string | null;
   status: MeetingLifecycle;
   captured: boolean;
+  /** Whether the notetaker bot actually joined the call. */
+  botJoined: boolean;
   hint: string | null;
   capture: MeetingCapture | null;
   createdAt: string;

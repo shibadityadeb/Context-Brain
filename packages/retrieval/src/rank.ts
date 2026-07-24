@@ -8,6 +8,8 @@ export const KIND_BASE: Record<RetrievedKind, number> = {
   meeting: 0.7,
   email: 0.65,
   calendar: 0.6,
+  // The Brain's own executed actions — recent and highly relevant when recalled.
+  action: 0.72,
   // Web results support the answer but internal company knowledge wins ties.
   web: 0.55,
 };

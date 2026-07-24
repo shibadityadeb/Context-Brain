@@ -34,3 +34,6 @@ infrastructure/docker/volumes/
 
 # meeting bot runtime artifacts (chrome profile + recordings)
 .meeting-bot/
+
+# Action Layer file-management sandbox (runtime output)
+.openclaw-workspace/

@@ -2,13 +2,23 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import { Trash2 } from 'lucide-react';
 import { cn } from '@company-brain/ui';
 import type { KnowledgeObjectSummary } from '@/lib/api';
 import { entityColor, entityIcon, entityLabel, humanStatus, statusTone } from '@/lib/entities';
 import { Badge } from '@/components/ui/primitives';
 import { fadeUp } from '@/lib/motion';
 
-export function EntityCard({ entity, href }: { entity: KnowledgeObjectSummary; href?: string }) {
+export function EntityCard({
+  entity,
+  href,
+  onDelete,
+}: {
+  entity: KnowledgeObjectSummary;
+  href?: string;
+  /** When set, a delete button appears on hover (task/knowledge control). */
+  onDelete?: () => void;
+}) {
   const Icon = entityIcon(entity.type);
   const color = entityColor(entity.type);
   const status = humanStatus(entity.status);
@@ -18,10 +28,24 @@ export function EntityCard({ entity, href }: { entity: KnowledgeObjectSummary; h
       <Link
         href={href ?? `/brain/entity/${entity.id}`}
         className={cn(
-          'group block h-full rounded-xl border bg-card p-4 transition-all duration-200',
+          'group relative block h-full rounded-xl border bg-card p-4 transition-all duration-200',
           'hover:-translate-y-0.5 hover:border-ai/30 hover:shadow-elevation-mid',
         )}
       >
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete();
+            }}
+            aria-label={`Delete ${entity.title}`}
+            className="absolute right-2 top-2 z-10 grid h-7 w-7 place-items-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
         <div className="flex items-start gap-3">
           <span
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"

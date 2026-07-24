@@ -191,4 +191,22 @@ export default async function knowledgeGraphRoutes(fastify: FastifyInstance): Pr
       return reply.send(ok(await service.getObject(organizationId, request.params.id)));
     },
   );
+
+  app.delete(
+    '/:id',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['knowledge-graph'],
+        summary: 'Delete a knowledge object (task, entity, …) — soft delete',
+        security: [{ bearerAuth: [] }],
+        params: objectIdParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await orgOf(request.user!.id);
+      const result = await service.deleteObject(organizationId, request.params.id);
+      return reply.send(ok(result, 'Deleted'));
+    },
+  );
 }

@@ -70,6 +70,17 @@ export function KnowledgeCollection({
   // Realtime: when the pipeline (re)processes a source, refresh in place.
   useLiveRefresh(KNOWLEDGE_LIVE_EVENTS, () => load(false));
 
+  const remove = useCallback(async (item: KnowledgeObjectSummary) => {
+    if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
+    // Optimistic: drop it immediately, restore on failure.
+    setItems((prev) => prev?.filter((i) => i.id !== item.id) ?? prev);
+    try {
+      await knowledgeGraphApi.remove(item.id);
+    } catch {
+      setItems((prev) => (prev ? [item, ...prev] : prev));
+    }
+  }, []);
+
   const filtered = useMemo(() => {
     if (!items) return null;
     const q = search.trim().toLowerCase();
@@ -156,7 +167,7 @@ export function KnowledgeCollection({
                 className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
               >
                 {group.items.map((e) => (
-                  <EntityCard key={e.id} entity={e} />
+                  <EntityCard key={e.id} entity={e} onDelete={() => void remove(e)} />
                 ))}
               </motion.div>
             </section>

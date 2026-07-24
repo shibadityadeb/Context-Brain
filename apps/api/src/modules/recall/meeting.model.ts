@@ -27,6 +27,9 @@ export type MeetingLifecycle =
   | 'processing_transcript'
   | 'analysis_complete'
   | 'completed'
+  // Meeting time has passed but it was never successfully captured (the bot
+  // didn't join / no recording). Distinct from 'completed' (captured + analyzed).
+  | 'ended'
   | 'failed';
 
 export const MEETING_LIFECYCLES: readonly MeetingLifecycle[] = [
@@ -37,6 +40,7 @@ export const MEETING_LIFECYCLES: readonly MeetingLifecycle[] = [
   'processing_transcript',
   'analysis_complete',
   'completed',
+  'ended',
   'failed',
 ] as const;
 
@@ -70,6 +74,8 @@ export interface Meeting {
   status: MeetingLifecycle;
   /** Whether a capture provider is attached yet. */
   captured: boolean;
+  /** Whether the notetaker bot actually joined the call (past meetings). */
+  botJoined: boolean;
   hint: string | null;
   capture: MeetingCapture | null;
   createdAt: string;
@@ -113,21 +119,30 @@ export interface LifecycleInput {
     analysisStatus: AnalysisStatus | null;
   } | null;
   startsAt: Date | null;
+  /** When the meeting is scheduled to end; used to decide it has passed. */
+  endsAt?: Date | null;
   now: number;
+}
+
+/** True once the meeting's scheduled window has elapsed. */
+function hasPassed(startsAt: Date | null, endsAt: Date | null | undefined, now: number): boolean {
+  const boundary = endsAt ?? startsAt;
+  return boundary !== null && boundary !== undefined && boundary.getTime() <= now;
 }
 
 /**
  * Map a capture's provider status (plus transcript/analysis progress and the
- * meeting's start time) onto the provider-neutral lifecycle. Precedence is
- * documented in the plan; kept pure for testability.
+ * meeting's start/end time) onto the provider-neutral lifecycle. A meeting whose
+ * time has passed without a successful capture resolves to 'ended' (the bot
+ * never joined) rather than being stuck on 'bot_scheduled'/'joining'. Pure.
  */
 export function deriveMeetingLifecycle(input: LifecycleInput): MeetingLifecycle {
-  const { capture, startsAt, now } = input;
+  const { capture, startsAt, endsAt, now } = input;
+  const passed = hasPassed(startsAt, endsAt, now);
 
   if (!capture) {
-    // No capture attached yet: it's upcoming until it has clearly started.
-    if (startsAt && startsAt.getTime() <= now) return 'completed';
-    return 'upcoming';
+    // No capture ever attached: upcoming until it starts, then it just ended.
+    return passed ? 'ended' : 'upcoming';
   }
 
   switch (capture.status) {
@@ -138,9 +153,10 @@ export function deriveMeetingLifecycle(input: LifecycleInput): MeetingLifecycle 
       return 'recording';
     case 'joining':
     case 'waiting':
-      return 'joining';
+      // Still pre-join: if the window has already elapsed, the bot never made it.
+      return passed ? 'ended' : 'joining';
     case 'scheduled':
-      return 'bot_scheduled';
+      return passed ? 'ended' : 'bot_scheduled';
     case 'done': {
       if (capture.analysisStatus === 'done') return 'analysis_complete';
       const analysisRunning =
@@ -149,7 +165,7 @@ export function deriveMeetingLifecycle(input: LifecycleInput): MeetingLifecycle 
       return 'completed';
     }
     default:
-      // Capture exists but status is unknown — a bot has been booked.
-      return 'bot_scheduled';
+      // Capture exists but status is unknown — booked, or ended if time passed.
+      return passed ? 'ended' : 'bot_scheduled';
   }
 }

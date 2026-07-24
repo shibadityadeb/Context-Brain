@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Input, cn } from '@company-brain/ui';
 import { knowledgeGraphApi, type KnowledgeObjectList, type KnowledgeStats } from '@/lib/api';
 import { useLiveRefresh } from '@/lib/use-live';
@@ -44,6 +45,27 @@ export default function KnowledgeExplorerPage() {
 
   // Realtime: refresh the explorer when a source is (re)processed.
   useLiveRefresh(KNOWLEDGE_LIVE_EVENTS, () => void load());
+
+  const remove = useCallback(
+    async (id: string, title: string) => {
+      if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+      setList((prev) =>
+        prev
+          ? {
+              ...prev,
+              total: Math.max(0, prev.total - 1),
+              objects: prev.objects.filter((o) => o.id !== id),
+            }
+          : prev,
+      );
+      try {
+        await knowledgeGraphApi.remove(id);
+      } catch {
+        void load(); // restore accurate state on failure
+      }
+    },
+    [load],
+  );
 
   const totalPages = list ? Math.max(1, Math.ceil(list.total / PAGE_SIZE)) : 1;
 
@@ -137,33 +159,42 @@ export default function KnowledgeExplorerPage() {
 
       <div className="space-y-2">
         {list?.objects.map((object) => (
-          <Link
-            key={object.id}
-            href={`/brain/entity/${object.id}`}
-            className="flex items-center justify-between gap-4 rounded-lg border p-4 transition-colors hover:bg-accent"
-          >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                  style={{ background: typeColor(object.type) }}
-                >
-                  {object.type}
-                </span>
-                <p className="truncate font-medium">{object.title}</p>
+          <div key={object.id} className="group relative">
+            <Link
+              href={`/brain/entity/${object.id}`}
+              className="flex items-center justify-between gap-4 rounded-lg border p-4 pr-12 transition-colors hover:bg-accent"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                    style={{ background: typeColor(object.type) }}
+                  >
+                    {object.type}
+                  </span>
+                  <p className="truncate font-medium">{object.title}</p>
+                </div>
+                {object.summary && (
+                  <p className="mt-1 truncate text-sm text-muted-foreground">{object.summary}</p>
+                )}
               </div>
-              {object.summary && (
-                <p className="mt-1 truncate text-sm text-muted-foreground">{object.summary}</p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
-              <span>{object.status}</span>
-              {object.priority !== 'NONE' && <span>{object.priority}</span>}
-              <span>{object.mentionCount} mentions</span>
-              <span>{object.relationshipCount} links</span>
-              <span>{Math.round(object.confidence * 100)}%</span>
-            </div>
-          </Link>
+              <div className="flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
+                <span>{object.status}</span>
+                {object.priority !== 'NONE' && <span>{object.priority}</span>}
+                <span>{object.mentionCount} mentions</span>
+                <span>{object.relationshipCount} links</span>
+                <span>{Math.round(object.confidence * 100)}%</span>
+              </div>
+            </Link>
+            <button
+              type="button"
+              onClick={() => void remove(object.id, object.title)}
+              aria-label={`Delete ${object.title}`}
+              className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         ))}
         {list && list.objects.length === 0 && (
           <p className="py-12 text-center text-sm text-muted-foreground">

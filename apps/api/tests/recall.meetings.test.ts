@@ -135,14 +135,25 @@ describe('deriveMeetingLifecycle', () => {
     ).toBe('upcoming');
   });
 
-  it('is completed when no capture and start is in the past', () => {
+  it('is ended when no capture and the meeting time has passed', () => {
     expect(
       deriveMeetingLifecycle({ capture: null, startsAt: new Date(NOW - 60_000), now: NOW }),
-    ).toBe('completed');
+    ).toBe('ended');
   });
 
-  it('maps provider statuses to the lifecycle', () => {
-    const base = { startsAt: new Date(NOW), now: NOW };
+  it('is ended when a bot was scheduled but the meeting time passed (never joined)', () => {
+    expect(
+      deriveMeetingLifecycle({
+        capture: { status: 'scheduled', transcriptStatus: null, analysisStatus: null },
+        startsAt: new Date(NOW - 120 * 60_000),
+        endsAt: new Date(NOW - 60 * 60_000),
+        now: NOW,
+      }),
+    ).toBe('ended');
+  });
+
+  it('maps provider statuses to the lifecycle (before the meeting has passed)', () => {
+    const base = { startsAt: new Date(NOW + 60 * 60_000), now: NOW };
     expect(
       deriveMeetingLifecycle({
         ...base,
@@ -252,7 +263,11 @@ describe('MeetingsService.list', () => {
       repos: makeRepos([]),
       calendarSource: makeCalendarSource([
         calEvent({ calendarEventId: 'cal-1' }),
-        calEvent({ calendarEventId: 'cal-2', startsAt: new Date(NOW - 60_000) }),
+        calEvent({
+          calendarEventId: 'cal-2',
+          startsAt: new Date(NOW - 120 * 60_000),
+          endsAt: new Date(NOW - 60 * 60_000),
+        }),
       ]),
       now: () => NOW,
     });

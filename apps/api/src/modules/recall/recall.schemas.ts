@@ -13,6 +13,7 @@ export const listRecallMeetingsQuerySchema = z.object({
       'processing_transcript',
       'analysis_complete',
       'completed',
+      'ended',
       'failed',
     ])
     .optional(),

@@ -12,6 +12,7 @@ import {
   Mail,
   Sparkles,
   Users,
+  Zap,
 } from 'lucide-react';
 import { Badge, Dot } from '@/components/ui/primitives';
 import { NeuralThinking } from '@/components/brain/neural-thinking';
@@ -31,6 +32,8 @@ function sourceHref(s: AskSource): { href: string; external: boolean } | null {
       return { href: `/memory/${s.id}`, external: false };
     case 'meeting':
       return { href: `/meetings/${s.id}`, external: false };
+    case 'action':
+      return { href: `/actions?a=${s.id}`, external: false };
     case 'knowledge':
     case 'document':
       return { href: `/brain/entity/${s.id}`, external: false };
@@ -46,6 +49,7 @@ function SourceIcon({ kind, type }: { kind: AskSource['kind']; type: string }) {
   if (kind === 'email') return <Mail className="h-3 w-3 text-ai" />;
   if (kind === 'calendar') return <CalendarClock className="h-3 w-3 text-ai" />;
   if (kind === 'document') return <FileText className="h-3 w-3 text-ai" />;
+  if (kind === 'action') return <Zap className="h-3 w-3 text-ai" />;
   return <Dot color={entityColor(type)} />;
 }
 

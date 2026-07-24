@@ -18,7 +18,7 @@ import type { PrismaClient } from '@prisma/client';
 export type RetrievalScope = 'personal' | 'team';
 
 export type RetrievedKind =
-  'knowledge' | 'memory' | 'meeting' | 'document' | 'email' | 'calendar' | 'web';
+  'knowledge' | 'memory' | 'meeting' | 'document' | 'email' | 'calendar' | 'web' | 'action';
 
 export interface RetrievedItem {
   id: string;
