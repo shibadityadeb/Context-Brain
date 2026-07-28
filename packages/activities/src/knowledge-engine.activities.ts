@@ -8,9 +8,7 @@ import {
   MockProvider,
   extractKnowledge,
   normalizeTitle,
-  resolveEntity,
   titleSimilarity,
-  type ExistingEntity,
   type ExtractionResult,
   type LLMProvider,
 } from '@company-brain/knowledge-engine';
@@ -209,47 +207,6 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
   }
 
   /** Resolve one extracted object against the org's existing entities. */
-  async function resolveAgainstStore(
-    organizationId: string,
-    candidate: { type: string; title: string; aliases: string[] },
-  ): Promise<string | null> {
-    const normalized = normalizeTitle(candidate.title);
-
-    const exact = await prisma.knowledgeObject.findFirst({
-      where: {
-        organizationId,
-        type: candidate.type as never,
-        normalizedTitle: normalized,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (exact) return exact.id;
-
-    const aliasKeys = [candidate.title, ...candidate.aliases].map(normalizeTitle).filter(Boolean);
-    if (aliasKeys.length > 0) {
-      const aliasHit = await prisma.entityAlias.findFirst({
-        where: {
-          organizationId,
-          normalizedAlias: { in: aliasKeys },
-          object: { type: candidate.type as never, deletedAt: null },
-        },
-        select: { objectId: true },
-      });
-      if (aliasHit) return aliasHit.objectId;
-    }
-
-    // Similarity pass over same-type entities (bounded).
-    const sameType = await prisma.knowledgeObject.findMany({
-      where: { organizationId, type: candidate.type as never, deletedAt: null },
-      select: { id: true, type: true, title: true, normalizedTitle: true },
-      orderBy: { updatedAt: 'desc' },
-      take: 300,
-    });
-    const existing: ExistingEntity[] = sameType.map((e) => ({ ...e, aliases: [] }));
-    return resolveEntity(candidate, existing)?.id ?? null;
-  }
-
   return {
     /**
      * EXTRACT — run LLM extraction over the document's chunks and persist
