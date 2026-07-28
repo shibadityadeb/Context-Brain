@@ -26,6 +26,7 @@ import connectorRoutes from './modules/connectors/connector.routes.js';
 import meetingRoutes from './modules/meetings/meeting.routes.js';
 import recallRoutes from './modules/recall/recall.routes.js';
 import graphRoutes from './modules/graph/graph.routes.js';
+import boardRoutes from './modules/board/board.routes.js';
 import liveRoutes from './modules/live/live.routes.js';
 import activityRoutes from './modules/activity/activity.routes.js';
 
@@ -82,6 +83,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(meetingRoutes, { prefix: '/api/v1/meetings' });
   await app.register(recallRoutes, { prefix: '/api/v1/recall' });
   await app.register(graphRoutes, { prefix: '/api/v1/graph' });
+  await app.register(boardRoutes, { prefix: '/api/v1/board' });
   await app.register(liveRoutes, { prefix: '/api/v1/live' });
   await app.register(activityRoutes, { prefix: '/api/v1/activity' });
 
