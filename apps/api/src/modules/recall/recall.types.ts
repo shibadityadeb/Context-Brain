@@ -76,6 +76,49 @@ export interface RecallWebhookEnvelope {
 }
 
 /**
+ * The bot resource returned by `GET /api/v1/bot/{id}/` — what the poller reads
+ * instead of waiting for a webhook. Intentionally permissive (Recall's shape
+ * evolves and we persist the raw payload). The fields we actually consume:
+ *   • `status_changes` — the lifecycle log; its last entry is the current state.
+ *   • `recordings[].media_shortcuts.transcript` — the async transcript ref,
+ *     mirrored from the `transcript.done` webhook so `fetchTranscriptDocument`
+ *     can resolve it the same way.
+ */
+export interface RecallStatusChange {
+  code?: string | null;
+  sub_code?: string | null;
+  message?: string | null;
+  created_at?: string | null;
+}
+
+export interface RecallMediaShortcut {
+  id?: string | null;
+  status?: { code?: string | null; sub_code?: string | null } | null;
+  data?: { download_url?: string | null } | null;
+}
+
+export interface RecallBotRecording {
+  id?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  expires_at?: string | null;
+  status?: { code?: string | null; sub_code?: string | null } | null;
+  media_shortcuts?: {
+    transcript?: RecallMediaShortcut | null;
+    video_mixed?: RecallMediaShortcut | null;
+  } | null;
+}
+
+export interface RecallBotResource {
+  id: string;
+  metadata?: Record<string, unknown> | null;
+  meeting_url?: string | { meeting_id?: string; platform?: string } | null;
+  join_at?: string | null;
+  status_changes?: RecallStatusChange[] | null;
+  recordings?: RecallBotRecording[] | null;
+}
+
+/**
  * A Recall async-transcript document: a list of utterances, each a speaker and
  * their words with relative timestamps. We tolerate both the `participant`
  * (newer) and `speaker` (older) shapes and number/`{relative}` timestamps.

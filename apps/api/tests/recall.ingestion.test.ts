@@ -63,6 +63,9 @@ class MemMeetingRepo implements MeetingRepository {
       .filter((m) => (filter.status ? m.status === filter.status : true))
       .slice(filter.offset, filter.offset + filter.limit);
   }
+  async listActive() {
+    return [...this.store.values()];
+  }
   async softDelete(id: string) {
     this.store.delete(id);
   }

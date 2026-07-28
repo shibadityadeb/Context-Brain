@@ -17,9 +17,11 @@ import type {
 } from './domain.js';
 import {
   RECALL_EVENTS,
+  type RecallBotResource,
   type RecallParticipantRef,
   type RecallTimestamp,
   type RecallTranscriptDocument,
+  type RecallTranscriptRef,
   type RecallWebhookEnvelope,
 } from './recall.types.js';
 
@@ -121,6 +123,97 @@ export function normalizeMeeting(envelope: RecallWebhookEnvelope): NormalizedMee
     meeting.error = envelope.data.data?.sub_code ?? envelope.data.data?.code ?? 'bot failed';
   }
   return meeting;
+}
+
+/**
+ * Map a bot `status_changes[].code` to a domain status. The codes are the
+ * `bot.*` event names without the prefix, so we reuse {@link eventToMeetingStatus}.
+ */
+export function statusCodeToMeetingStatus(
+  code: string | null | undefined,
+): MeetingStatus | undefined {
+  if (!code) return undefined;
+  return eventToMeetingStatus(`bot.${code}`);
+}
+
+/**
+ * Reduce a polled bot resource to a meeting snapshot — the poller's equivalent
+ * of {@link normalizeMeeting} for webhooks. Walks the `status_changes` log to
+ * find the latest recognized lifecycle state and stamps join/end timing off it.
+ * Returns null if the resource has no id.
+ */
+export function normalizeBotResource(bot: RecallBotResource): NormalizedMeeting | null {
+  if (!bot?.id) return null;
+
+  const meta = parseBotMetadata(bot.metadata);
+  const { url, platform } = meetingUrlOf(bot as RecallWebhookEnvelope['data']['bot']);
+  const changes = Array.isArray(bot.status_changes) ? bot.status_changes : [];
+
+  // Latest recognized status wins (scan from the end).
+  let status: MeetingStatus | undefined;
+  for (let i = changes.length - 1; i >= 0 && !status; i -= 1) {
+    status = statusCodeToMeetingStatus(changes[i]?.code);
+  }
+
+  // Timing from the log: first time it started recording/in-call, and the end.
+  const firstOf = (codes: string[]): Date | undefined => {
+    const hit = changes.find((c) => c.code != null && codes.includes(c.code));
+    return hit ? asDate(hit.created_at) : undefined;
+  };
+  const lastOf = (codes: string[]): Date | undefined => {
+    for (let i = changes.length - 1; i >= 0; i -= 1) {
+      const c = changes[i];
+      if (c?.code != null && codes.includes(c.code)) return asDate(c.created_at);
+    }
+    return undefined;
+  };
+
+  const meeting: NormalizedMeeting = {
+    externalId: bot.id,
+    provider: 'recall',
+    rawMetadata: bot,
+  };
+  if (meta.organizationId) meeting.organizationId = meta.organizationId;
+  if (meta.externalMeetingId) meeting.externalMeetingId = meta.externalMeetingId;
+  if (url) meeting.meetingUrl = url;
+  if (platform) meeting.platform = platform;
+  if (status) meeting.status = status;
+  if (asDate(bot.join_at)) meeting.scheduledStart = asDate(bot.join_at);
+
+  const joinedAt = firstOf(['in_call_recording', 'in_call_not_recording']);
+  if (joinedAt) meeting.joinedAt = joinedAt;
+  if (status === 'done' || status === 'failed') {
+    meeting.endedAt = lastOf(['done', 'call_ended']) ?? new Date();
+  }
+  if (status === 'failed') {
+    const fatal = lastOf(['fatal', 'recording_permission_denied']);
+    const change = changes.find(
+      (c) => c.code === 'fatal' || c.code === 'recording_permission_denied',
+    );
+    meeting.error = change?.sub_code ?? change?.code ?? 'bot failed';
+    if (fatal && !meeting.endedAt) meeting.endedAt = fatal;
+  }
+  return meeting;
+}
+
+/**
+ * Extract the async-transcript reference from a polled bot resource. Prefers a
+ * recording whose transcript is `done`, so we only fetch once it's ready.
+ */
+export function extractTranscriptRef(bot: RecallBotResource): RecallTranscriptRef | null {
+  const recordings = Array.isArray(bot.recordings) ? bot.recordings : [];
+  let fallback: RecallTranscriptRef | null = null;
+  for (const rec of recordings) {
+    const t = rec.media_shortcuts?.transcript;
+    if (!t?.id) continue;
+    const ref: RecallTranscriptRef = {
+      id: t.id,
+      ...(t.data?.download_url ? { download_url: t.data.download_url } : {}),
+    };
+    if (t.status?.code === 'done') return ref;
+    fallback ??= ref;
+  }
+  return fallback;
 }
 
 function normalizeParticipant(p: RecallParticipantRef): NormalizedParticipant | null {

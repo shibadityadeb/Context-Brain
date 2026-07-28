@@ -170,6 +170,20 @@ const envSchema = z.object({
   // 10 minutes; below it a scheduled bot may silently never join, so we join
   // immediately (ad-hoc, no join_at) instead. See dispatch.service.ts.
   RECALL_SCHEDULED_MIN_LEAD_MINUTES: z.coerce.number().int().nonnegative().default(10),
+
+  // Recall bot poller. Reads bot status + transcripts straight from Recall's API
+  // so capture works WITHOUT a public webhook tunnel (and recovers meetings that
+  // ended while nothing was listening). Safe to leave on: it only reads.
+  RECALL_POLLER_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v === 'true'),
+  RECALL_POLLER_POLL_SECONDS: z.coerce.number().int().positive().default(30),
+  // How far back to keep polling stuck records (minutes). Default 7 days so a
+  // meeting captured days ago is still recoverable.
+  RECALL_POLLER_MAX_AGE_MINUTES: z.coerce.number().int().positive().default(10080),
+  // Max meetings reconciled per tick — bounds Recall API calls.
+  RECALL_POLLER_BATCH_LIMIT: z.coerce.number().int().positive().default(25),
 });
 
 const parsed = envSchema.safeParse(process.env);

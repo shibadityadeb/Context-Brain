@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarClock, FileText, Radio, Sparkles } from 'lucide-react';
+import { Bot, CalendarClock, FileText, Link as LinkIcon, Radio, Sparkles } from 'lucide-react';
 import { Badge, EmptyState, PageHeader, SkeletonCard } from '@/components/ui/primitives';
 import { meetingsApi, type Meeting, type MeetingLifecycle } from '@/lib/api';
 
@@ -98,6 +98,9 @@ export default function MeetingsPage() {
   const [view, setView] = useState<View>('all');
   const [meetings, setMeetings] = useState<Meeting[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [joinUrl, setJoinUrl] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinNote, setJoinNote] = useState<string | null>(null);
 
   const load = useCallback(() => {
     meetingsApi
@@ -105,6 +108,24 @@ export default function MeetingsPage() {
       .then(setMeetings)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load meetings'));
   }, []);
+
+  async function sendBot(e: React.FormEvent) {
+    e.preventDefault();
+    const url = joinUrl.trim();
+    if (!url || joining) return;
+    setJoining(true);
+    setJoinNote(null);
+    try {
+      await meetingsApi.join(url);
+      setJoinUrl('');
+      setJoinNote('Bot is joining — it will appear below and start capturing.');
+      load();
+    } catch (err) {
+      setJoinNote(err instanceof Error ? err.message : 'Could not send the bot.');
+    } finally {
+      setJoining(false);
+    }
+  }
 
   useEffect(() => {
     load();
@@ -123,6 +144,31 @@ export default function MeetingsPage() {
       />
 
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {/* Ad-hoc: paste a Meet link and send the notetaker bot in now. */}
+      <form
+        onSubmit={sendBot}
+        className="flex flex-col gap-2 rounded-xl border bg-card/40 p-3 sm:flex-row sm:items-center"
+      >
+        <div className="flex flex-1 items-center gap-2 rounded-lg border bg-background px-3 py-1.5 focus-within:border-ai/40">
+          <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <input
+            value={joinUrl}
+            onChange={(e) => setJoinUrl(e.target.value)}
+            placeholder="Paste a Google Meet link to send the notetaker bot…"
+            className="h-7 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={joining || joinUrl.trim().length < 8}
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-ai-gradient px-3.5 py-2 text-sm font-medium text-white transition-opacity disabled:opacity-40"
+        >
+          <Bot className="h-4 w-4" />
+          {joining ? 'Sending…' : 'Send bot'}
+        </button>
+      </form>
+      {joinNote && <p className="text-xs text-muted-foreground">{joinNote}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
         {VIEWS.map((v) => (

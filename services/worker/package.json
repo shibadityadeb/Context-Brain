@@ -12,6 +12,7 @@
     "test": "echo 'no tests' && exit 0"
   },
   "dependencies": {
+    "@company-brain/knowledge-engine": "workspace:*",
     "@company-brain/llm": "workspace:*",
     "@company-brain/utils": "workspace:*",
     "@prisma/client": "^6.6.0",

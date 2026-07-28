@@ -92,6 +92,9 @@ function makeRepos(
       async list() {
         return meetings;
       },
+      async listActive() {
+        return meetings;
+      },
       async softDelete() {},
     },
     participants: {

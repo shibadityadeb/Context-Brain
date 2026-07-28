@@ -9,7 +9,11 @@
  * backoff and logs every request + response.
  */
 
-import type { RecallTranscriptDocument, RecallTranscriptRef } from './recall.types.js';
+import type {
+  RecallBotResource,
+  RecallTranscriptDocument,
+  RecallTranscriptRef,
+} from './recall.types.js';
 
 /** Structural logger — Fastify's `request.log` / `app.log` and pino satisfy it. */
 export interface RecallLogger {
@@ -113,6 +117,27 @@ export class RecallClient {
     );
     this.logger.info({ botId: result.id }, 'recall createBot response');
     return result;
+  }
+
+  /**
+   * GET /api/v1/bot/{id}/ — the current bot resource (status log + recordings).
+   * This is the poller's read path: it lets us drive the pipeline from Recall's
+   * own state instead of waiting for a webhook that may never reach localhost.
+   * Returns null on 404 (the bot was deleted or expired upstream).
+   */
+  async getBot(botId: string): Promise<RecallBotResource | null> {
+    const res = await this.fetchImpl(`${this.baseUrl}/api/v1/bot/${botId}/`, {
+      headers: { Authorization: this.apiKey },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new RecallApiError(
+        `Recall getBot failed: ${res.status}`,
+        res.status,
+        res.status >= 500 || res.status === 429,
+      );
+    }
+    return (await res.json()) as RecallBotResource;
   }
 
   /** PATCH /api/v1/bot/{id}/ — reschedule a not-yet-joined bot's join_at. */

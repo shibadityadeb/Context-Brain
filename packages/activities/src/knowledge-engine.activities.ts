@@ -4,12 +4,11 @@ import { EventBus } from '@company-brain/events';
 import { embedAll } from '@company-brain/knowledge';
 import {
   ExtractionValidationError,
+  KnowledgeGraphWriter,
   MockProvider,
   extractKnowledge,
   normalizeTitle,
-  resolveEntity,
   titleSimilarity,
-  type ExistingEntity,
   type ExtractionResult,
   type LLMProvider,
 } from '@company-brain/knowledge-engine';
@@ -136,6 +135,10 @@ function deriveProjectName(document: {
 export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityContext) {
   const { prisma, qdrant, embeddings, llm, redis } = ctx;
   const bus = new EventBus(redis);
+  // Canonical persistence engine — the ONE place object/relationship writes
+  // happen, shared with the meeting worker (source-agnostic). Document-specific
+  // orchestration (chunking, prune, degraded fallback) stays here and delegates.
+  const writer = new KnowledgeGraphWriter(prisma, { providerName: llm.name });
   // Deterministic, no-network extractor used as a fallback when the primary
   // LLM is unavailable (rate-limited / quota exhausted) so a source always
   // yields some knowledge instead of failing to zero. No paid API.
@@ -204,201 +207,6 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
   }
 
   /** Resolve one extracted object against the org's existing entities. */
-  async function resolveAgainstStore(
-    organizationId: string,
-    candidate: { type: string; title: string; aliases: string[] },
-  ): Promise<string | null> {
-    const normalized = normalizeTitle(candidate.title);
-
-    const exact = await prisma.knowledgeObject.findFirst({
-      where: {
-        organizationId,
-        type: candidate.type as never,
-        normalizedTitle: normalized,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (exact) return exact.id;
-
-    const aliasKeys = [candidate.title, ...candidate.aliases].map(normalizeTitle).filter(Boolean);
-    if (aliasKeys.length > 0) {
-      const aliasHit = await prisma.entityAlias.findFirst({
-        where: {
-          organizationId,
-          normalizedAlias: { in: aliasKeys },
-          object: { type: candidate.type as never, deletedAt: null },
-        },
-        select: { objectId: true },
-      });
-      if (aliasHit) return aliasHit.objectId;
-    }
-
-    // Similarity pass over same-type entities (bounded).
-    const sameType = await prisma.knowledgeObject.findMany({
-      where: { organizationId, type: candidate.type as never, deletedAt: null },
-      select: { id: true, type: true, title: true, normalizedTitle: true },
-      orderBy: { updatedAt: 'desc' },
-      take: 300,
-    });
-    const existing: ExistingEntity[] = sameType.map((e) => ({ ...e, aliases: [] }));
-    return resolveEntity(candidate, existing)?.id ?? null;
-  }
-
-  async function persistExtraction(
-    document: { id: string; organizationId: string; title: string },
-    chunk: { id: string },
-    extraction: ExtractionResult,
-    stats: ExtractStats,
-  ): Promise<void> {
-    const refToObjectId = new Map<string, string>();
-
-    for (const extracted of extraction.objects) {
-      const existingId = await resolveAgainstStore(document.organizationId, extracted);
-
-      let objectId: string;
-      if (!existingId) {
-        const created = await prisma.knowledgeObject.create({
-          data: {
-            type: extracted.type as never,
-            title: extracted.title,
-            normalizedTitle: normalizeTitle(extracted.title),
-            summary: extracted.summary ?? null,
-            description: extracted.description ?? null,
-            status: extracted.status as never,
-            priority: extracted.priority as never,
-            confidence: extracted.confidence,
-            sourceDocumentId: document.id,
-            sourceChunkId: chunk.id,
-            createdBy: `extraction:${llm.name}`,
-            metadata: extracted.metadata as Prisma.InputJsonValue,
-            organizationId: document.organizationId,
-          },
-        });
-        objectId = created.id;
-        stats.objectsCreated += 1;
-        await addAliases(objectId, document.organizationId, extracted.aliases, 'extraction');
-        await snapshotVersion(objectId, document.organizationId, 'created', created.createdBy);
-        await prisma.timelineEvent.create({
-          data: {
-            objectId,
-            type: 'CREATED',
-            title: `Extracted from "${document.title}"`,
-            documentId: document.id,
-            actor: `extraction:${llm.name}`,
-            organizationId: document.organizationId,
-          },
-        });
-      } else {
-        objectId = existingId;
-        const current = await prisma.knowledgeObject.findUnique({ where: { id: objectId } });
-        if (current) {
-          const statusChanged =
-            extracted.status !== 'UNKNOWN' && extracted.status !== current.status;
-          const confidence = Math.max(current.confidence, extracted.confidence);
-          const changed =
-            statusChanged ||
-            confidence !== current.confidence ||
-            (!current.summary && extracted.summary);
-          if (changed) {
-            await prisma.knowledgeObject.update({
-              where: { id: objectId },
-              data: {
-                status: statusChanged ? (extracted.status as never) : undefined,
-                confidence,
-                summary: current.summary ?? extracted.summary ?? null,
-                version: { increment: 1 },
-              },
-            });
-            await snapshotVersion(
-              objectId,
-              document.organizationId,
-              statusChanged ? 'status_changed' : 'updated',
-              `extraction:${llm.name}`,
-            );
-            if (statusChanged) {
-              await prisma.timelineEvent.create({
-                data: {
-                  objectId,
-                  type: 'STATUS_CHANGED',
-                  title: `Status: ${current.status} → ${extracted.status}`,
-                  payload: { from: current.status, to: extracted.status },
-                  documentId: document.id,
-                  actor: `extraction:${llm.name}`,
-                  organizationId: document.organizationId,
-                },
-              });
-            }
-            stats.objectsUpdated += 1;
-          }
-          await addAliases(objectId, document.organizationId, extracted.aliases, 'extraction');
-        }
-      }
-      refToObjectId.set(extracted.ref, objectId);
-
-      await prisma.entityMention.create({
-        data: {
-          objectId,
-          documentId: document.id,
-          chunkId: chunk.id,
-          snippet: extracted.evidence ?? null,
-          confidence: extracted.confidence,
-          organizationId: document.organizationId,
-        },
-      });
-      stats.mentions += 1;
-
-      await prisma.knowledgeReference.create({
-        data: {
-          objectId,
-          kind: 'chunk',
-          documentId: document.id,
-          chunkId: chunk.id,
-          label: `Chunk of ${document.title}`,
-          organizationId: document.organizationId,
-        },
-      });
-    }
-
-    for (const rel of extraction.relationships) {
-      const fromId = refToObjectId.get(rel.from);
-      const toId = refToObjectId.get(rel.to);
-      if (!fromId || !toId || fromId === toId) continue;
-      const existing = await prisma.knowledgeRelationship.findUnique({
-        where: { fromId_toId_type: { fromId, toId, type: rel.type as never } },
-      });
-      if (existing) {
-        await prisma.knowledgeRelationship.update({
-          where: { id: existing.id },
-          data: { confidence: Math.max(existing.confidence, rel.confidence), deletedAt: null },
-        });
-        continue;
-      }
-      await prisma.knowledgeRelationship.create({
-        data: {
-          type: rel.type as never,
-          fromId,
-          toId,
-          confidence: rel.confidence,
-          sourceDocumentId: document.id,
-          sourceChunkId: chunk.id,
-          organizationId: document.organizationId,
-        },
-      });
-      stats.relationships += 1;
-      await prisma.timelineEvent.create({
-        data: {
-          objectId: fromId,
-          type: 'RELATIONSHIP_ADDED',
-          title: `${rel.type} → linked entity`,
-          payload: { relationshipType: rel.type, toId },
-          documentId: document.id,
-          organizationId: document.organizationId,
-        },
-      });
-    }
-  }
-
   return {
     /**
      * EXTRACT — run LLM extraction over the document's chunks and persist
@@ -539,7 +347,17 @@ export function createKnowledgeEngineActivities(ctx: KnowledgeEngineActivityCont
           continue;
         }
         if (degraded) stats.chunksDegraded += 1;
-        await persistExtraction(document, chunk, extraction, stats);
+        await writer.persistExtraction(
+          {
+            type: 'document',
+            organizationId: document.organizationId,
+            documentId: document.id,
+            chunkId: chunk.id,
+            label: document.title,
+          },
+          extraction,
+          stats,
+        );
         stats.chunksProcessed += 1;
       }
 
