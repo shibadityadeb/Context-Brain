@@ -14,7 +14,7 @@
  * edges, so it converges rather than accumulating.
  */
 
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import type { Logger } from 'pino';
 import {
   KNOWLEDGE_DOMAINS,
@@ -31,6 +31,8 @@ export interface MeetingTranscriptSegment {
   speaker: string | null;
   startMs: number;
   endMs: number;
+  /** Segment text — used to anchor extraction evidence to a speaker + timestamp. */
+  text?: string | null;
 }
 
 export interface MeetingParticipantRoster {
@@ -135,6 +137,64 @@ export function computeParticipantMetrics(
     }
   }
   return [...byKey.values()];
+}
+
+const normalizeQuote = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
+
+/**
+ * Anchor an extraction quote to the transcript segment it came from, so a card
+ * can show the speaker + timestamp. Matches on shared text (segment contains the
+ * quote, or the quote contains the segment). Pure — unit-testable.
+ */
+export function matchSegment(
+  quote: string,
+  segments: MeetingTranscriptSegment[],
+): MeetingTranscriptSegment | null {
+  const q = normalizeQuote(quote);
+  if (q.length < 4) return null;
+  const probe = q.slice(0, 60);
+  for (const seg of segments) {
+    const t = normalizeQuote(seg.text ?? '');
+    if (!t) continue;
+    if (t.includes(probe) || q.includes(t.slice(0, 60))) return seg;
+  }
+  return null;
+}
+
+/** Store the anchored evidence in the card's metadata (merged, non-destructive). */
+async function attachEvidence(
+  prisma: PrismaClient,
+  objectId: string,
+  ev: {
+    quote: string;
+    segment: MeetingTranscriptSegment | null;
+    meetingId: string;
+    meetingTitle: string;
+  },
+): Promise<void> {
+  const current = await prisma.knowledgeObject.findUnique({
+    where: { id: objectId },
+    select: { metadata: true },
+  });
+  const md =
+    current?.metadata && typeof current.metadata === 'object' && !Array.isArray(current.metadata)
+      ? (current.metadata as Record<string, unknown>)
+      : {};
+  await prisma.knowledgeObject.update({
+    where: { id: objectId },
+    data: {
+      metadata: {
+        ...md,
+        evidence: {
+          quote: ev.quote,
+          speaker: ev.segment?.speaker ?? null,
+          ms: ev.segment?.startMs ?? null,
+          meetingId: ev.meetingId,
+          meetingTitle: ev.meetingTitle,
+        },
+      } as Prisma.InputJsonValue,
+    },
+  });
 }
 
 /** Build the (bounded) extraction input from the analysis + a transcript excerpt. */
@@ -268,6 +328,17 @@ export async function syncMeetingKnowledge(
       type: GENERATED_TYPES.has(obj.type) ? 'GENERATED_FROM' : 'DISCUSSED_IN',
       sourceMeetingId: input.canonicalMeetingId,
     });
+
+    // Transcript evidence: anchor the extraction quote to a speaker + timestamp
+    // so the board card can show "Speaker (mm:ss): quote". Best-effort.
+    if (obj.evidence) {
+      await attachEvidence(prisma, objectId, {
+        quote: obj.evidence,
+        segment: matchSegment(obj.evidence, input.segments),
+        meetingId: input.canonicalMeetingId,
+        meetingTitle: input.title,
+      });
+    }
   }
 
   // 6. Meeting → its Projects and Topics.
@@ -288,7 +359,9 @@ export async function syncMeetingKnowledge(
     });
   }
 
-  // 7. Participants → global People, wired to the Meeting and its Projects.
+  // 7. Participants → global People FIRST (full names from the transcript), so
+  //    they are the canonical Person nodes owner first-names resolve into.
+
   const participants = computeParticipantMetrics(input.segments, input.roster);
   let peopleLinked = 0;
   for (const p of participants) {
@@ -318,6 +391,32 @@ export async function syncMeetingKnowledge(
         toId: projectId,
         type: 'WORKS_ON',
         confidence: 0.6,
+        sourceMeetingId: input.canonicalMeetingId,
+      });
+    }
+  }
+
+  // 8. Owner edges: link owned action items to their assignee Person (resolves
+  //    into the full-name participants created above; never-duplicate people).
+  for (const item of input.analysis.actionItems) {
+    if (!item.owner) continue;
+    const person = await writer.ensureObject(org, {
+      type: 'PERSON',
+      title: item.owner,
+      confidence: 0.7,
+    });
+    const itemKey = normalizeTitle(item.title);
+    const match = extraction.objects.find((o) => {
+      const ok = normalizeTitle(o.title);
+      return ok === itemKey || (itemKey.length > 12 && ok.includes(itemKey.slice(0, 24)));
+    });
+    const cardId = match ? refToId.get(match.ref) : undefined;
+    if (cardId) {
+      await writer.linkEdge(org, {
+        fromId: cardId,
+        toId: person.id,
+        type: 'ASSIGNED_TO',
+        confidence: 0.7,
         sourceMeetingId: input.canonicalMeetingId,
       });
     }

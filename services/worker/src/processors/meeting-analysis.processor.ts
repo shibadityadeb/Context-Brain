@@ -110,7 +110,7 @@ export function createMeetingAnalysisProcessor(deps: Deps) {
               where: { meetingId },
               select: {
                 mergedText: true,
-                segments: { select: { speaker: true, startMs: true, endMs: true } },
+                segments: { select: { speaker: true, startMs: true, endMs: true, text: true } },
               },
             }),
             prisma.recallParticipant.findMany({
@@ -131,6 +131,7 @@ export function createMeetingAnalysisProcessor(deps: Deps) {
                 speaker: s.speaker,
                 startMs: s.startMs,
                 endMs: s.endMs,
+                text: s.text,
               })),
               roster: roster.map((r) => ({ name: r.name, isHost: r.isHost })),
               analysis,

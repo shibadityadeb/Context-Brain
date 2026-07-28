@@ -16,6 +16,22 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { normalizeTitle, resolveEntity, type ExistingEntity } from './resolution.js';
 import type { ExtractionResult } from './schemas.js';
 
+/**
+ * True when two person names denote the same person: they share the first name
+ * and one name's tokens are a subset of the other's (e.g. "Krish" ⊂ "Krish
+ * Modi", "Shibaditya" ⊂ "Shibaditya Deb"). Title-similarity scoring misses this
+ * because short first names score low against full names. Distinct last names
+ * ("Krish Modi" vs "Krish Kumar") never match.
+ */
+export function personNamesMatch(a: string, b: string): boolean {
+  const ta = normalizeTitle(a).split(' ').filter(Boolean);
+  const tb = normalizeTitle(b).split(' ').filter(Boolean);
+  if (ta.length === 0 || tb.length === 0) return false;
+  if (ta[0] !== tb[0]) return false;
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  return short.every((t) => long.includes(t));
+}
+
 /** Where an extraction came from — the only thing that varies per source. */
 export type KnowledgeSource =
   | { type: 'document'; organizationId: string; documentId: string; chunkId: string; label: string }
@@ -109,6 +125,15 @@ export class KnowledgeGraphWriter {
       orderBy: { updatedAt: 'desc' },
       take: this.scanLimit,
     });
+
+    // People: reconcile bare first names with full names (never-duplicate),
+    // but only when the match is unambiguous (a lone "Krish" that fits both
+    // "Krish Modi" and "Krish Kumar" stays separate).
+    if (candidate.type === 'PERSON') {
+      const matches = sameType.filter((e) => personNamesMatch(candidate.title, e.title));
+      if (matches.length === 1) return matches[0]!.id;
+    }
+
     const existing: ExistingEntity[] = sameType.map((e) => ({ ...e, aliases: [] }));
     return resolveEntity(candidate, existing)?.id ?? null;
   }
@@ -459,5 +484,112 @@ export class KnowledgeGraphWriter {
       data: { deletedAt: new Date() },
     });
     return ids.length;
+  }
+
+  /**
+   * Merge `loserId` into `survivorId`: re-point the loser's edges (deduped),
+   * mentions, references and timeline onto the survivor, alias the loser's
+   * names, then soft-delete + tombstone the loser (`mergedIntoId`).
+   */
+  async mergeInto(organizationId: string, survivorId: string, loserId: string): Promise<void> {
+    if (survivorId === loserId) return;
+    const loser = await this.prisma.knowledgeObject.findUnique({
+      where: { id: loserId },
+      include: { aliases: true },
+    });
+    if (!loser) return;
+
+    await this.addAliases(
+      survivorId,
+      organizationId,
+      [loser.title, ...loser.aliases.map((a) => a.alias)],
+      'merge',
+    );
+
+    const fromEdges = await this.prisma.knowledgeRelationship.findMany({
+      where: { organizationId, fromId: loserId, deletedAt: null },
+      select: { id: true, toId: true, type: true, confidence: true },
+    });
+    for (const e of fromEdges) {
+      if (e.toId !== survivorId) {
+        await this.linkEdge(organizationId, {
+          fromId: survivorId,
+          toId: e.toId,
+          type: e.type,
+          confidence: e.confidence,
+        });
+      }
+      await this.prisma.knowledgeRelationship.update({
+        where: { id: e.id },
+        data: { deletedAt: new Date() },
+      });
+    }
+    const toEdges = await this.prisma.knowledgeRelationship.findMany({
+      where: { organizationId, toId: loserId, deletedAt: null },
+      select: { id: true, fromId: true, type: true, confidence: true },
+    });
+    for (const e of toEdges) {
+      if (e.fromId !== survivorId) {
+        await this.linkEdge(organizationId, {
+          fromId: e.fromId,
+          toId: survivorId,
+          type: e.type,
+          confidence: e.confidence,
+        });
+      }
+      await this.prisma.knowledgeRelationship.update({
+        where: { id: e.id },
+        data: { deletedAt: new Date() },
+      });
+    }
+
+    await this.prisma.entityMention.updateMany({
+      where: { objectId: loserId },
+      data: { objectId: survivorId },
+    });
+    await this.prisma.knowledgeReference.updateMany({
+      where: { objectId: loserId },
+      data: { objectId: survivorId },
+    });
+    await this.prisma.timelineEvent.updateMany({
+      where: { objectId: loserId },
+      data: { objectId: survivorId },
+    });
+    await this.prisma.knowledgeObject.update({
+      where: { id: loserId },
+      data: { mergedIntoId: survivorId, deletedAt: new Date() },
+    });
+  }
+
+  /**
+   * Consolidate duplicate PERSON nodes where a bare first name and a full name
+   * are the same person ("Krish" → "Krish Modi"). The fuller name survives; the
+   * shorter merges in (only when it maps to exactly one fuller name).
+   */
+  async dedupePeople(organizationId: string): Promise<{ merged: number }> {
+    const people = await this.prisma.knowledgeObject.findMany({
+      where: { organizationId, type: 'PERSON' as never, deletedAt: null, mergedIntoId: null },
+      select: { id: true, title: true },
+    });
+    const tokenCount = (t: string) => normalizeTitle(t).split(' ').filter(Boolean).length;
+    const shortestFirst = [...people].sort((a, b) => tokenCount(a.title) - tokenCount(b.title));
+    const removed = new Set<string>();
+    let merged = 0;
+    for (const short of shortestFirst) {
+      if (removed.has(short.id)) continue;
+      const supersets = people.filter(
+        (p) =>
+          p.id !== short.id &&
+          !removed.has(p.id) &&
+          tokenCount(p.title) > tokenCount(short.title) &&
+          personNamesMatch(short.title, p.title),
+      );
+      if (supersets.length === 1) {
+        await this.mergeInto(organizationId, supersets[0]!.id, short.id);
+        removed.add(short.id);
+        merged += 1;
+      }
+    }
+    return { merged };
   }
 }

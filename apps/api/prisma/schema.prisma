@@ -950,6 +950,12 @@ enum KnowledgeObjectType {
   MEETING
   ACTION_ITEM
   DECISION
+  // Knowledge Board card vocabulary (beyond tasks) — surfaced from meetings.
+  IDEA
+  BLOCKER
+  REMINDER
+  FOLLOW_UP
+  DISCUSSION
   DEADLINE
   FEATURE
   REQUIREMENT
@@ -1098,6 +1104,12 @@ model KnowledgeObject {
 
   organizationId String @db.Uuid
 
+  // Knowledge Board placement. A card lives in a user-editable board column;
+  // null = the default "Inbox". The column optionally maps to a semantic status
+  // so a board move (e.g. → Done) syncs back into the graph.
+  boardColumnId String?      @db.Uuid
+  boardColumn   BoardColumn? @relation(fields: [boardColumnId], references: [id], onDelete: SetNull)
+
   aliases       EntityAlias[]
   mentions      EntityMention[]
   references    KnowledgeReference[]
@@ -1114,8 +1126,33 @@ model KnowledgeObject {
   @@index([organizationId, type])
   @@index([organizationId, normalizedTitle])
   @@index([organizationId, status])
+  @@index([organizationId, boardColumnId])
   @@index([sourceDocumentId])
   @@map("knowledge_objects")
+}
+
+/// A user-editable Knowledge Board column (Trello/Linear-style). Ordered per
+/// organization. `semanticStatus`, when set, is the KnowledgeObjectStatus a card
+/// takes when moved into this column — so the board stays in sync with the graph.
+model BoardColumn {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String @db.Uuid
+
+  name           String
+  order          Int
+  semanticStatus KnowledgeObjectStatus?
+  // True for the seven seeded defaults (Inbox/To Review/…/Archive).
+  isDefault      Boolean                @default(false)
+
+  cards KnowledgeObject[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, order])
+  @@map("board_columns")
 }
 
 model KnowledgeRelationship {

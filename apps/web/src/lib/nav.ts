@@ -10,6 +10,7 @@ import {
   FolderKanban,
   History,
   Home,
+  LayoutGrid,
   Library,
   Network,
   Search,
@@ -50,6 +51,7 @@ export const NAV: NavGroup[] = [
   {
     label: 'Workspace',
     items: [
+      { href: '/board', label: 'Board', icon: LayoutGrid },
       { href: '/brain', label: 'Knowledge', icon: Boxes, match: 'exact' },
       { href: '/people', label: 'People', icon: Users },
       { href: '/meetings', label: 'Meetings', icon: CalendarClock },
