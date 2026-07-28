@@ -201,6 +201,34 @@ export class PrismaMeetingRepository implements MeetingRepository {
     });
     return rows.map(toStoredMeeting);
   }
+
+  async listActive({
+    maxAgeMinutes,
+    limit,
+  }: {
+    maxAgeMinutes: number;
+    limit: number;
+  }): Promise<StoredMeeting[]> {
+    const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000);
+    const inFlight: Prisma.RecallMeetingWhereInput['status'] = {
+      in: ['SCHEDULED', 'JOINING', 'WAITING', 'IN_CALL', 'RECORDING'],
+    };
+    const rows = await this.prisma.recallMeeting.findMany({
+      where: {
+        deletedAt: null,
+        provider: 'recall',
+        createdAt: { gte: cutoff },
+        OR: [
+          { status: inFlight },
+          // Done but never transcribed — poll until we recover the transcript.
+          { status: 'DONE', transcript: { is: null } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    return rows.map(toStoredMeeting);
+  }
 }
 
 // ── Participants ──────────────────────────────────────────────────────────────

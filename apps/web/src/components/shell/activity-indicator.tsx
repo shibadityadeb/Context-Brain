@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Brain, CheckCircle2, FileText, Radio, RefreshCw, X } from 'lucide-react';
+import { cn } from '@company-brain/ui';
 import { activityApi, type ActivityStatus, type LiveEvent } from '@/lib/api';
 import { useLiveEvent } from '@/lib/use-live';
+import { useShell } from './shell-context';
 
 /**
  * Pipeline events that mean the brain actually CHANGED something — used to
@@ -69,6 +71,7 @@ const DONE_LINGER_MS = 3500;
  * poll that keeps counts fresh through longer operations.
  */
 export function ActivityIndicator() {
+  const { aiOpen } = useShell();
   const [status, setStatus] = useState<ActivityStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -161,10 +164,18 @@ export function ActivityIndicator() {
     [],
   );
 
-  const popupVisible = (busy || justFinished) && !dismissed;
+  // Hide the floating card while the Ask Brain dock panel is open (they share
+  // the bottom-right corner); the topbar pill still reflects the state.
+  const popupVisible = (busy || justFinished) && !dismissed && !aiOpen;
   const label = busy
     ? (message ?? status?.label ?? 'Working…')
     : 'Everything is synced and processed.';
+  const hasCounts =
+    !!status &&
+    (status.syncing > 0 ||
+      status.documents > 0 ||
+      status.extracting > 0 ||
+      status.liveMeetings > 0);
 
   return (
     <>
@@ -200,68 +211,85 @@ export function ActivityIndicator() {
         </span>
       ) : null}
 
-      {/* Detailed bottom-right popup. */}
+      {/* Floating status card — sits just above the Ask Brain dock button. */}
       <AnimatePresence>
         {popupVisible && (
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            initial={{ opacity: 0, y: 12, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.98 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-            className="fixed bottom-4 right-4 z-[80] w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-background/95 shadow-glow backdrop-blur"
+            exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+            className="glass fixed bottom-24 right-6 z-[60] w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-2xl shadow-elevation-high"
             role="status"
             aria-live="polite"
           >
             <div className="flex items-start gap-3 p-4">
-              <div className="mt-0.5">
+              {/* Animated brain badge (pulsing while busy, solid check when done). */}
+              <span
+                className={cn(
+                  'relative grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white',
+                  busy ? 'bg-ai-gradient' : 'bg-success',
+                )}
+              >
+                {busy && (
+                  <span
+                    className="absolute inset-0 animate-pulse-ring rounded-xl bg-ai/50"
+                    aria-hidden
+                  />
+                )}
                 {busy ? (
-                  <RefreshCw className="h-5 w-5 animate-spin text-ai" />
+                  <motion.span
+                    animate={{ rotate: [0, 8, -8, 0], scale: [1, 1.08, 1] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                    className="relative"
+                  >
+                    <Brain className="h-5 w-5" strokeWidth={2.2} />
+                  </motion.span>
                 ) : (
-                  <CheckCircle2 className="h-5 w-5 text-success" />
+                  <CheckCircle2 className="relative h-5 w-5" />
+                )}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold leading-tight">
+                  {busy ? 'Company Brain is working' : 'All caught up'}
+                </p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{label}</p>
+
+                {busy && hasCounts && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {status!.syncing > 0 && (
+                      <Chip icon={RefreshCw} label={`${status!.syncing} syncing`} />
+                    )}
+                    {status!.documents > 0 && (
+                      <Chip icon={FileText} label={`${status!.documents} processing`} />
+                    )}
+                    {status!.extracting > 0 && (
+                      <Chip icon={Brain} label={`${status!.extracting} extracting`} />
+                    )}
+                    {status!.liveMeetings > 0 && (
+                      <Chip icon={Radio} label={`${status!.liveMeetings} live`} />
+                    )}
+                  </div>
                 )}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {busy ? 'Company Brain is working' : 'Up to date'}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
 
-                {busy &&
-                  status &&
-                  (status.syncing > 0 ||
-                    status.documents > 0 ||
-                    status.extracting > 0 ||
-                    status.liveMeetings > 0) && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {status.syncing > 0 && (
-                        <Chip icon={RefreshCw} label={`${status.syncing} syncing`} />
-                      )}
-                      {status.documents > 0 && (
-                        <Chip icon={FileText} label={`${status.documents} processing`} />
-                      )}
-                      {status.extracting > 0 && (
-                        <Chip icon={Brain} label={`${status.extracting} extracting`} />
-                      )}
-                      {status.liveMeetings > 0 && (
-                        <Chip icon={Radio} label={`${status.liveMeetings} live`} />
-                      )}
-                    </div>
-                  )}
-              </div>
               <button
                 onClick={() => setDismissed(true)}
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="-mr-1 -mt-1 shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 aria-label="Dismiss"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            {/* Indeterminate progress track while work is in flight. */}
-            {busy && (
-              <div className="h-1 w-full overflow-hidden bg-ai/15">
-                <div className="animate-progress-indeterminate h-full w-2/5 bg-ai-gradient" />
+            {/* Rounded gradient progress track while work is in flight. */}
+            {busy ? (
+              <div className="mx-4 mb-4 h-1.5 overflow-hidden rounded-full bg-ai/10">
+                <div className="animate-progress-indeterminate h-full w-1/3 rounded-full bg-ai-gradient" />
               </div>
+            ) : (
+              <div className="h-1 w-full bg-success/60" aria-hidden />
             )}
           </motion.div>
         )}

@@ -123,6 +123,12 @@ export const config = {
       joinOffsetMinutes: env.BOT_JOIN_OFFSET_MINUTES,
       scheduledMinLeadMinutes: env.RECALL_SCHEDULED_MIN_LEAD_MINUTES,
     },
+    poller: {
+      enabled: env.RECALL_POLLER_ENABLED,
+      pollSeconds: env.RECALL_POLLER_POLL_SECONDS,
+      maxAgeMinutes: env.RECALL_POLLER_MAX_AGE_MINUTES,
+      batchLimit: env.RECALL_POLLER_BATCH_LIMIT,
+    },
   },
   activity: {
     extractionStaleMinutes: env.ACTIVITY_EXTRACTION_STALE_MINUTES,

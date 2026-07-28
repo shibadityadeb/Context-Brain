@@ -3,7 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { config } from '../../config/index.js';
 import { ok, fail } from '../../utils/response.js';
-import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 import {
   MEETING_ANALYSIS_JOB,
   QUEUE_NAMES,
@@ -14,10 +14,15 @@ import { MeetingIngestionService, MeetingNotFoundError } from './ingestion.servi
 import { MeetingsService } from './meetings.service.js';
 import { PrismaCalendarEventSource } from './calendar-source.js';
 import { RecallClient } from './recall.client.js';
+import { isSupportedMeetingUrl } from './dispatch.service.js';
 import { processRecallWebhook } from './recall.webhook.js';
 import { extractSignatureHeaders, verifyRecallSignature } from './signature.js';
 import type { RecallWebhookEnvelope } from './recall.types.js';
-import { listRecallMeetingsQuerySchema, recallMeetingIdParamsSchema } from './recall.schemas.js';
+import {
+  joinMeetingSchema,
+  listRecallMeetingsQuerySchema,
+  recallMeetingIdParamsSchema,
+} from './recall.schemas.js';
 
 /** Carries the raw request body captured by the scoped content-type parser. */
 type RawBodyRequest = FastifyRequest & { rawBody?: string };
@@ -185,6 +190,99 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
       throw err;
     }
   };
+
+  // ── Ad-hoc: send the bot to a Meet link now ─────────────────────────────────
+  app.post(
+    '/join',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['recall'],
+        summary: 'Dispatch the notetaker bot to a Meet link now (ad-hoc)',
+        security: [{ bearerAuth: [] }],
+        body: joinMeetingSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await resolveOrg(request.user!.id);
+      if (!client) {
+        throw new BadRequestError(
+          'Meeting capture is not configured — set RECALL_API_KEY to enable the bot.',
+        );
+      }
+      const { meetingUrl, title } = request.body;
+      if (!isSupportedMeetingUrl(meetingUrl)) {
+        throw new BadRequestError('That link is not a supported Google Meet URL.');
+      }
+
+      // No joinAt → Recall dispatches an immediate bot that joins now and waits.
+      const bot = await client.createBot({
+        meetingUrl,
+        botName: config.recall.botName,
+        transcriptProvider: config.recall.transcriptProvider,
+        metadata: { organizationId, userId: request.user!.id },
+      });
+
+      const meeting = await repos.meetings.upsertByExternalId({
+        externalId: bot.id,
+        organizationId,
+        externalMeetingId: null,
+        provider: 'recall',
+        title: title ?? 'Meeting',
+        meetingUrl,
+        botName: config.recall.botName,
+        platform: 'google_meet',
+        status: 'scheduled',
+        scheduledStart: new Date(),
+      });
+
+      return reply
+        .status(201)
+        .send(ok({ botId: bot.id, meetingId: meeting.externalId, meetingUrl }, 'Bot is joining'));
+    },
+  );
+
+  // ── Backfill: reprocess existing meetings into the knowledge graph ──────────
+  // Retires the old flat meeting-knowledge objects (superseded by the graph) and
+  // re-runs every transcribed meeting through the new extract→classify→link
+  // pipeline. Idempotent + reconciling — safe to run repeatedly.
+  app.post(
+    '/backfill-knowledge',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['recall'],
+        summary: 'Reprocess existing meetings into the project-centric knowledge graph',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await resolveOrg(request.user!.id);
+      // Retire the earlier flat objects (createdBy "recall-meeting:*"); the graph
+      // pipeline recreates knowledge as connected nodes under "meeting:*".
+      const retired = await app.prisma.knowledgeObject.updateMany({
+        where: {
+          organizationId,
+          createdBy: { startsWith: 'recall-meeting:' },
+          deletedAt: null,
+        },
+        data: { deletedAt: new Date() },
+      });
+      const meetings = await app.prisma.recallMeeting.findMany({
+        where: { organizationId, deletedAt: null, transcript: { isNot: null } },
+        select: { id: true },
+      });
+      for (const meeting of meetings) {
+        await enqueueAnalysis({ meetingId: meeting.id, organizationId });
+      }
+      return reply.send(
+        ok(
+          { retiredFlatObjects: retired.count, meetingsQueued: meetings.length },
+          'Backfill enqueued — meetings will re-fold into the knowledge graph',
+        ),
+      );
+    },
+  );
 
   app.get(
     '/meetings',

@@ -1508,6 +1508,17 @@ export const meetingsApi = {
     return request(`/api/v1/recall/meetings${toQuery(params)}`);
   },
 
+  /** Send the notetaker bot to a Meet link right now (ad-hoc). */
+  join(
+    meetingUrl: string,
+    title?: string,
+  ): Promise<{ botId: string; meetingId: string; meetingUrl: string }> {
+    return request('/api/v1/recall/join', {
+      method: 'POST',
+      body: JSON.stringify({ meetingUrl, title }),
+    });
+  },
+
   get(id: string): Promise<MeetingDetailView> {
     return request(`/api/v1/recall/meetings/${encodeURIComponent(id)}`);
   },

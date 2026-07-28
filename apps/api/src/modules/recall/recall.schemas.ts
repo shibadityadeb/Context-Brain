@@ -27,3 +27,10 @@ export const recallMeetingIdParamsSchema = z.object({
   id: z.string().min(1),
 });
 export type RecallMeetingIdParams = z.infer<typeof recallMeetingIdParamsSchema>;
+
+/** Dispatch the notetaker bot to an arbitrary Meet link (ad-hoc, joins now). */
+export const joinMeetingSchema = z.object({
+  meetingUrl: z.string().url().max(2000),
+  title: z.string().min(1).max(200).optional(),
+});
+export type JoinMeetingBody = z.infer<typeof joinMeetingSchema>;

@@ -35,6 +35,12 @@ export interface MeetingRepository {
   findByExternalMeetingId(externalMeetingId: string): Promise<StoredMeeting | null>;
   findById(id: string): Promise<StoredMeeting | null>;
   list(filter: ListMeetingsFilter): Promise<StoredMeeting[]>;
+  /**
+   * Meetings the poller should reconcile against Recall: still in flight, or
+   * `done` but not yet transcribed (the recovery case). Bounded by age so we
+   * don't poll ancient stuck records forever.
+   */
+  listActive(opts: { maxAgeMinutes: number; limit: number }): Promise<StoredMeeting[]>;
   /** Soft-delete a meeting (used when its calendar event is cancelled). */
   softDelete(id: string): Promise<void>;
 }

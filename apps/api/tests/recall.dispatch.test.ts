@@ -52,6 +52,9 @@ function makeMeetingRepo() {
     async list() {
       return [...store.values()];
     },
+    async listActive() {
+      return [...store.values()];
+    },
     async softDelete(id) {
       store.delete(id);
     },
