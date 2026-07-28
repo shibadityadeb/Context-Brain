@@ -3,6 +3,7 @@ import { Redis } from 'ioredis';
 import { pino } from 'pino';
 import { PrismaClient } from '@prisma/client';
 import { createLLMService } from '@company-brain/llm';
+import { KnowledgeGraphWriter, createLLMProvider } from '@company-brain/knowledge-engine';
 import { config } from './config.js';
 import { createSystemProcessor } from './processors/system.processor.js';
 import { createMeetingAnalysisProcessor } from './processors/meeting-analysis.processor.js';
@@ -35,6 +36,10 @@ function main(): void {
   const prisma = new PrismaClient();
   // Codex-backed LLM service (reused from the shared @company-brain/llm layer).
   const llm = createLLMService();
+  // Knowledge-extraction provider + the shared graph writer, so meeting
+  // knowledge flows through the SAME engine documents use (source-agnostic).
+  const extractionProvider = createLLMProvider(config.extraction);
+  const graphWriter = new KnowledgeGraphWriter(prisma, { providerName: extractionProvider.name });
 
   const systemWorker = new Worker('system', createSystemProcessor(logger), {
     connection,
@@ -46,7 +51,7 @@ function main(): void {
   // many heavy processes at once.
   const analysisWorker = new Worker(
     MEETING_ANALYSIS_QUEUE,
-    createMeetingAnalysisProcessor({ prisma, llm, logger }),
+    createMeetingAnalysisProcessor({ prisma, llm, extractionProvider, graphWriter, logger }),
     { connection, prefix: config.queue.prefix, concurrency: 2 },
   );
 

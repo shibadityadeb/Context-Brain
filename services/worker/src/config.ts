@@ -12,6 +12,17 @@ const envSchema = z.object({
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
   QUEUE_PREFIX: z.string().default('brain'),
+
+  // Knowledge extraction LLM (provider-agnostic) — mirrors the temporal-worker
+  // so meeting knowledge runs through the SAME extraction engine as documents.
+  EXTRACTION_PROVIDER: z
+    .enum(['codex', 'anthropic', 'openai', 'gemini', 'local', 'mock'])
+    .default('codex'),
+  EXTRACTION_MODEL: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  LOCAL_LLM_URL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -32,4 +43,17 @@ export const config = {
     password: parsed.data.REDIS_PASSWORD || undefined,
   },
   queue: { prefix: parsed.data.QUEUE_PREFIX },
+  extraction: {
+    provider: parsed.data.EXTRACTION_PROVIDER,
+    model: parsed.data.EXTRACTION_MODEL,
+    apiKey: {
+      codex: undefined,
+      anthropic: parsed.data.ANTHROPIC_API_KEY,
+      openai: parsed.data.OPENAI_API_KEY,
+      gemini: parsed.data.GEMINI_API_KEY,
+      local: undefined,
+      mock: undefined,
+    }[parsed.data.EXTRACTION_PROVIDER],
+    baseUrl: parsed.data.LOCAL_LLM_URL,
+  },
 } as const;

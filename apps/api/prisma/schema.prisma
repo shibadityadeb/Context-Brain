@@ -940,6 +940,10 @@ enum KnowledgeObjectType {
   TEAM
   ORGANIZATION
   PROJECT
+  // Primary organizational boundary is PROJECT; DOMAIN is the classification
+  // fallback (controlled vocabulary), TOPIC is a secondary supporting node.
+  DOMAIN
+  TOPIC
   TASK
   BUG
   ISSUE
@@ -1077,7 +1081,11 @@ model KnowledgeObject {
   sourceDocumentId String?   @db.Uuid
   sourceDocument   Document? @relation("KnowledgeObjectSource", fields: [sourceDocumentId], references: [id], onDelete: SetNull)
   sourceChunkId    String?   @db.Uuid
-  createdBy        String? // "extraction:<provider>" or a user id
+  // Canonical meeting id when first extracted from a meeting. Plain string (not
+  // a FK): the canonical meeting id can be a calendar-event id, mirroring
+  // KnowledgeRelationship.sourceMeetingId. Source-agnostic provenance.
+  sourceMeetingId  String?
+  createdBy        String? // "extraction:<provider>", "meeting:<id>", or a user id
 
   // Type-specific extras (assignee email, amounts, dates, URLs, …).
   metadata Json?
@@ -1256,10 +1264,12 @@ model KnowledgeReference {
   objectId String          @db.Uuid
   object   KnowledgeObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
 
-  // "document" | "chunk" | "url" | "external"
+  // "document" | "chunk" | "url" | "external" | "meeting"
   kind       String
   documentId String? @db.Uuid
   chunkId    String? @db.Uuid
+  // Canonical meeting id when kind == "meeting" (plain string, not a FK).
+  meetingId  String?
   url        String?
   label      String?
 

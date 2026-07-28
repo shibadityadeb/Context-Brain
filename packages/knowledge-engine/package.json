@@ -17,6 +17,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@company-brain/llm": "workspace:*",
+    "@prisma/client": "^6.6.0",
     "zod": "^3.24.3"
   },
   "devDependencies": {

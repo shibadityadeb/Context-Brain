@@ -13,8 +13,10 @@
 import type { Job } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { LLMService } from '@company-brain/llm';
+import type { KnowledgeGraphWriter, LLMProvider } from '@company-brain/knowledge-engine';
 import type { Logger } from 'pino';
 import { analyzeRecallMeeting } from '../analysis/analyze-meeting.js';
+import { syncMeetingKnowledge } from '../analysis/meeting-knowledge.js';
 
 /** Cast our typed arrays into a Prisma JSON value for a `Json` column. */
 const json = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
@@ -30,11 +32,14 @@ interface MeetingAnalysisJobData {
 interface Deps {
   prisma: PrismaClient;
   llm: LLMService;
+  /** Knowledge-extraction provider + graph writer for the graph sync stage. */
+  extractionProvider: LLMProvider;
+  graphWriter: KnowledgeGraphWriter;
   logger: Logger;
 }
 
 export function createMeetingAnalysisProcessor(deps: Deps) {
-  const { prisma, llm, logger } = deps;
+  const { prisma, llm, extractionProvider, graphWriter, logger } = deps;
 
   return async (job: Job): Promise<{ analyzed: boolean }> => {
     if (job.name !== MEETING_ANALYSIS_JOB) {
@@ -90,6 +95,62 @@ export function createMeetingAnalysisProcessor(deps: Deps) {
         },
         'meeting-analysis: stored Codex analysis',
       );
+
+      // Fold the meeting into the project-centric knowledge graph. A graph
+      // failure must NOT fail the analysis (already stored) — it would only
+      // trigger pointless retries — so we log and move on.
+      const meeting = await prisma.recallMeeting.findUnique({
+        where: { id: meetingId },
+        select: { organizationId: true, title: true, externalMeetingId: true },
+      });
+      if (meeting?.organizationId) {
+        try {
+          const [transcriptRow, roster] = await Promise.all([
+            prisma.recallTranscript.findUnique({
+              where: { meetingId },
+              select: {
+                mergedText: true,
+                segments: { select: { speaker: true, startMs: true, endMs: true } },
+              },
+            }),
+            prisma.recallParticipant.findMany({
+              where: { meetingId },
+              select: { name: true, isHost: true },
+            }),
+          ]);
+          // Canonical id: the calendar event id when linked, else the recall id.
+          const canonicalMeetingId = meeting.externalMeetingId ?? meetingId;
+          await syncMeetingKnowledge(
+            { prisma, provider: extractionProvider, writer: graphWriter, logger },
+            {
+              canonicalMeetingId,
+              organizationId: meeting.organizationId,
+              title: meeting.title ?? 'Meeting',
+              transcriptText: transcriptRow?.mergedText ?? '',
+              segments: (transcriptRow?.segments ?? []).map((s) => ({
+                speaker: s.speaker,
+                startMs: s.startMs,
+                endMs: s.endMs,
+              })),
+              roster: roster.map((r) => ({ name: r.name, isHost: r.isHost })),
+              analysis,
+            },
+          );
+        } catch (graphError) {
+          logger.error(
+            {
+              meetingId,
+              err: graphError instanceof Error ? graphError.message : String(graphError),
+            },
+            'meeting-analysis: knowledge graph sync failed',
+          );
+        }
+      } else {
+        logger.warn(
+          { meetingId },
+          'meeting-analysis: meeting has no organization — skipping knowledge graph sync',
+        );
+      }
       return { analyzed: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
