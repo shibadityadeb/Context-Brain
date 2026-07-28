@@ -13,6 +13,7 @@
   "dependencies": {
     "@company-brain/types": "workspace:*",
     "@company-brain/ui": "workspace:*",
+    "@dnd-kit/core": "^6.3.1",
     "cmdk": "^1.1.1",
     "framer-motion": "^12.42.2",
     "geist": "^1.7.2",

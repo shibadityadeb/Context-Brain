@@ -1716,3 +1716,124 @@ export const graphApi = {
     return request('/api/v1/graph/rebuild', { method: 'POST', body: JSON.stringify({}) });
   },
 };
+
+// ── Knowledge Board ─────────────────────────────────────────────────────────
+
+export interface BoardRef {
+  id: string;
+  title: string;
+}
+export interface BoardEvidence {
+  quote: string;
+  speaker: string | null;
+  ms: number | null;
+  meetingId: string;
+  meetingTitle?: string;
+}
+export interface BoardCard {
+  id: string;
+  type: string;
+  title: string;
+  summary: string | null;
+  status: string;
+  priority: string;
+  columnId: string | null;
+  projects: BoardRef[];
+  people: BoardRef[];
+  topics: BoardRef[];
+  meeting: BoardRef | null;
+  evidence: BoardEvidence | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface BoardColumn {
+  id: string;
+  name: string;
+  order: number;
+  semanticStatus: string | null;
+  isDefault: boolean;
+}
+export interface Board {
+  columns: BoardColumn[];
+  cards: BoardCard[];
+}
+export interface BoardCardDetail {
+  id: string;
+  type: string;
+  title: string;
+  summary: string | null;
+  description: string | null;
+  status: string;
+  priority: string;
+  columnId: string | null;
+  evidence: BoardEvidence | null;
+  tags: string[];
+  notes: string | null;
+  related: Array<{ id: string; type: string; title: string; relation: string }>;
+  timeline: Array<{
+    id: string;
+    type: string;
+    title: string | null;
+    actor: string | null;
+    at: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatchCardInput {
+  status?: string;
+  priority?: string;
+  type?: string;
+  title?: string;
+  summary?: string | null;
+  projectId?: string | null;
+  ownerId?: string | null;
+  boardColumnId?: string | null;
+  tags?: string[];
+  notes?: string | null;
+}
+
+export interface CreateCardInput {
+  title: string;
+  type?: string;
+  summary?: string | null;
+  priority?: string;
+  boardColumnId?: string | null;
+  projectId?: string | null;
+  ownerId?: string | null;
+}
+
+export const boardApi = {
+  get(): Promise<Board> {
+    return request('/api/v1/board');
+  },
+  createCard(input: CreateCardInput): Promise<BoardCard> {
+    return request('/api/v1/board/cards', { method: 'POST', body: JSON.stringify(input) });
+  },
+  getCard(id: string): Promise<BoardCardDetail> {
+    return request(`/api/v1/board/cards/${id}`);
+  },
+  patchCard(id: string, patch: PatchCardInput): Promise<BoardCard> {
+    return request(`/api/v1/board/cards/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  createColumn(input: { name: string; semanticStatus?: string | null }): Promise<BoardColumn> {
+    return request('/api/v1/board/columns', { method: 'POST', body: JSON.stringify(input) });
+  },
+  patchColumn(
+    id: string,
+    input: { name?: string; semanticStatus?: string | null; order?: number },
+  ): Promise<BoardColumn> {
+    return request(`/api/v1/board/columns/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  },
+  deleteColumn(id: string): Promise<{ deleted: boolean }> {
+    return request(`/api/v1/board/columns/${id}`, { method: 'DELETE' });
+  },
+  reorderColumns(order: string[]): Promise<BoardColumn[]> {
+    return request('/api/v1/board/columns/reorder', {
+      method: 'PATCH',
+      body: JSON.stringify({ order }),
+    });
+  },
+};
