@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
   Boxes,
+  Building2,
   Cable,
   CalendarClock,
   CheckSquare,
@@ -46,6 +47,7 @@ export const NAV: NavGroup[] = [
       { href: '/home', label: 'Home', icon: Home },
       { href: '/ask', label: 'Ask Brain', icon: Sparkles },
       { href: '/actions', label: 'Actions', icon: Zap },
+      { href: '/workspace', label: 'Workspace', icon: Building2 },
     ],
   },
   {

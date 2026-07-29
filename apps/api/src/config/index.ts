@@ -133,6 +133,11 @@ export const config = {
   activity: {
     extractionStaleMinutes: env.ACTIVITY_EXTRACTION_STALE_MINUTES,
   },
+  workspace: {
+    consumerDomains: env.WORKSPACE_CONSUMER_DOMAINS.split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean),
+  },
   webSearch: {
     provider: env.WEB_SEARCH_PROVIDER,
     apiKey: env.WEB_SEARCH_API_KEY,

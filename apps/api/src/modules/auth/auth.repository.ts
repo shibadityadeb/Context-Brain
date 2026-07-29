@@ -31,6 +31,35 @@ export class AuthRepository {
     });
   }
 
+  /** The user's first ACTIVE membership (a returning member has one). */
+  findActiveMembership(userId: string): Promise<Membership | null> {
+    return this.prisma.membership.findFirst({
+      where: { userId, status: 'ACTIVE', deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Stash the encrypted Google grant until the user picks a workspace, so the
+   * connector can auto-establish after onboarding with no second consent screen.
+   */
+  async stashPendingGrant(
+    userId: string,
+    data: {
+      refreshTokenCipher: string;
+      scope?: string;
+      tokenType?: string;
+      accessTokenExpiresAt?: Date;
+      profile?: Prisma.InputJsonValue;
+    },
+  ): Promise<void> {
+    await this.prisma.pendingOAuthGrant.upsert({
+      where: { userId },
+      create: { userId, ...data },
+      update: { ...data, createdAt: new Date() },
+    });
+  }
+
   /** Organizations are keyed by workspace domain so colleagues auto-join. */
   findOrganizationByName(name: string): Promise<{ id: string } | null> {
     return this.prisma.organization.findFirst({

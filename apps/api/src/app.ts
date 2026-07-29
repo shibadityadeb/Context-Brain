@@ -29,6 +29,7 @@ import graphRoutes from './modules/graph/graph.routes.js';
 import boardRoutes from './modules/board/board.routes.js';
 import liveRoutes from './modules/live/live.routes.js';
 import activityRoutes from './modules/activity/activity.routes.js';
+import workspaceRoutes from './modules/workspace/workspace.routes.js';
 
 /**
  * Builds a fully configured Fastify instance. Kept separate from the
@@ -86,6 +87,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(boardRoutes, { prefix: '/api/v1/board' });
   await app.register(liveRoutes, { prefix: '/api/v1/live' });
   await app.register(activityRoutes, { prefix: '/api/v1/activity' });
+  await app.register(workspaceRoutes, { prefix: '/api/v1/workspace' });
 
   return app;
 }

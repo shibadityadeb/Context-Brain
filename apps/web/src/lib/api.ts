@@ -1805,6 +1805,142 @@ export interface CreateCardInput {
   ownerId?: string | null;
 }
 
+// ── Collaborative Workspace (Phase 7) ────────────────────────────────────────
+// Organization-first onboarding: colleagues on the same verified email domain
+// discover and join one shared workspace instead of each creating their own.
+
+export type WorkspaceRole = 'admin' | 'member';
+export type MemberStatus = 'ACTIVE' | 'PENDING';
+
+/** Public identity of a workspace (safe to show pre-membership). */
+export interface WorkspaceBrief {
+  id: string;
+  name: string;
+  emailDomain: string | null;
+  description: string | null;
+  logoUrl: string | null;
+  requireApproval: boolean;
+  allowGuests: boolean;
+}
+
+/** A workspace enriched with a member preview — shown on the discovery card. */
+export interface WorkspacePreview extends WorkspaceBrief {
+  memberCount: number;
+  owner: string | null;
+  members: string[];
+}
+
+/** Discriminated onboarding state resolved from the caller's verified domain. */
+export type OnboardingState =
+  | { state: 'active'; workspace: WorkspaceBrief }
+  | { state: 'pending'; workspace: WorkspaceBrief }
+  | { state: 'invited'; workspace: WorkspacePreview; invitationId: string }
+  | { state: 'workspace_found'; workspace: WorkspacePreview; requireApproval: boolean }
+  | { state: 'no_workspace'; suggestedName: string; domain: string | null; personal?: boolean };
+
+export interface WorkspaceMember {
+  membershipId: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: WorkspaceRole;
+  isOwner: boolean;
+  isExternal: boolean;
+  status: MemberStatus;
+  joinedAt: string;
+}
+
+export interface JoinRequest {
+  membershipId: string;
+  userId: string;
+  name: string;
+  email: string;
+  isExternal: boolean;
+  requestedAt: string;
+}
+
+export interface WorkspaceInvitation {
+  id: string;
+  email: string;
+  role: WorkspaceRole;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export const workspaceApi = {
+  onboarding(): Promise<OnboardingState> {
+    return request('/api/v1/workspace/onboarding');
+  },
+
+  create(body: { name: string; description?: string }): Promise<WorkspaceBrief> {
+    return request('/api/v1/workspace', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  join(id: string): Promise<{ status: MemberStatus; workspace: WorkspaceBrief }> {
+    return request(`/api/v1/workspace/${id}/join`, { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  members(): Promise<WorkspaceMember[]> {
+    return request('/api/v1/workspace/members');
+  },
+
+  changeRole(membershipId: string, role: WorkspaceRole): Promise<{ updated: boolean }> {
+    return request(`/api/v1/workspace/members/${membershipId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  removeMember(membershipId: string): Promise<{ removed: boolean }> {
+    return request(`/api/v1/workspace/members/${membershipId}`, { method: 'DELETE' });
+  },
+
+  joinRequests(): Promise<JoinRequest[]> {
+    return request('/api/v1/workspace/join-requests');
+  },
+
+  approveRequest(membershipId: string): Promise<{ approved: boolean }> {
+    return request(`/api/v1/workspace/join-requests/${membershipId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  denyRequest(membershipId: string): Promise<{ denied: boolean }> {
+    return request(`/api/v1/workspace/join-requests/${membershipId}/deny`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  invitations(): Promise<WorkspaceInvitation[]> {
+    return request('/api/v1/workspace/invitations');
+  },
+
+  invite(body: { email: string; role?: WorkspaceRole }): Promise<{
+    invitationId: string;
+    email: string;
+  }> {
+    return request('/api/v1/workspace/invitations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  revokeInvitation(invitationId: string): Promise<{ revoked: boolean }> {
+    return request(`/api/v1/workspace/invitations/${invitationId}`, { method: 'DELETE' });
+  },
+
+  updateSettings(patch: {
+    name?: string;
+    description?: string | null;
+    requireApproval?: boolean;
+    allowGuests?: boolean;
+  }): Promise<WorkspaceBrief> {
+    return request('/api/v1/workspace', { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+};
+
 export const boardApi = {
   get(): Promise<Board> {
     return request('/api/v1/board');
