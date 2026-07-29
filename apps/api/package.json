@@ -26,6 +26,7 @@
     "@company-brain/graph": "workspace:*",
     "@company-brain/knowledge": "workspace:*",
     "@company-brain/knowledge-engine": "workspace:*",
+    "@company-brain/llm": "workspace:*",
     "@company-brain/meeting-engine": "workspace:*",
     "@company-brain/retrieval": "workspace:*",
     "@company-brain/types": "workspace:*",

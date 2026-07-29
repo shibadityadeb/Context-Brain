@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from '@company-brain/ui';
 import { useAuth } from '@/components/auth-provider';
+import { LlmProviderCard } from '@/components/settings/llm-provider-card';
 
 const THEMES = [
   { value: 'light', label: 'Light' },
@@ -45,6 +46,8 @@ export default function SettingsPage() {
           ))}
         </CardContent>
       </Card>
+
+      <LlmProviderCard />
 
       <Card>
         <CardHeader>

@@ -68,6 +68,13 @@ export {
 // --- Meeting helper (a thin consumer of LLMService) -------------------------
 export { MeetingAnalyzer } from './meeting.js';
 
+// --- Configured (user-supplied) multi-provider layer ------------------------
+// A separate, additive surface for the Settings-driven providers (OpenAI,
+// Anthropic, Gemini, Groq, OpenRouter, Together, custom). It reuses the
+// LLMProvider contract but does NOT alter createLLMProvider or the Codex
+// backend Brain uses today.
+export * from './providers/index.js';
+
 /**
  * Build the configured provider. Selection order: explicit `config.provider`,
  * then `LLM_PROVIDER` env, then `codex`. Only Codex is wired in this phase; the
