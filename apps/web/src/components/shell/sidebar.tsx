@@ -77,7 +77,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-5 overflow-y-auto px-2 py-2">
+      {/* data-lenis-prevent: let this pane scroll natively instead of Lenis
+          hijacking the wheel and scrolling the page behind it. */}
+      <nav className="flex-1 space-y-5 overflow-y-auto px-2 py-2" data-lenis-prevent>
         {NAV.map((group, gi) => (
           <div key={group.label ?? gi}>
             {group.label && !group.collapsible && (

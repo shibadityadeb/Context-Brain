@@ -1973,3 +1973,75 @@ export const boardApi = {
     });
   },
 };
+
+// ── LLM Provider settings (multi-provider, future) ───────────────────────────
+// Configure a personal AI provider + key. Not yet used by Brain — Brain runs
+// on Codex today. The API key is stored encrypted and never returned here.
+
+export type LlmProviderId =
+  'openai' | 'anthropic' | 'gemini' | 'groq' | 'openrouter' | 'together' | 'custom';
+
+export interface LlmProviderCatalogEntry {
+  id: LlmProviderId;
+  label: string;
+  wire: 'openai' | 'anthropic' | 'gemini';
+  baseUrl: string | null;
+  supportsBaseUrl: boolean;
+  requiresBaseUrl: boolean;
+  defaultModel: string;
+  modelSelection: 'list' | 'freeform';
+  models: string[];
+  apiKeyLabel: string;
+  docsUrl: string;
+  modelsDocUrl: string;
+}
+
+export interface LlmSettingsView {
+  configured: boolean;
+  provider: LlmProviderId | null;
+  baseUrl: string | null;
+  model: string | null;
+  hasKey: boolean;
+  updatedAt: string | null;
+}
+
+export interface LlmConnectionResult {
+  ok: boolean;
+  status: 'connected' | 'invalid_key' | 'unreachable';
+  message: string;
+  model?: string;
+}
+
+export interface SaveLlmSettingsInput {
+  provider: LlmProviderId;
+  apiKey?: string;
+  baseUrl?: string | null;
+  model?: string;
+}
+
+export const llmApi = {
+  providers(): Promise<LlmProviderCatalogEntry[]> {
+    return request('/api/v1/llm/providers');
+  },
+
+  getSettings(): Promise<LlmSettingsView> {
+    return request('/api/v1/llm/settings');
+  },
+
+  saveSettings(input: SaveLlmSettingsInput): Promise<LlmSettingsView> {
+    return request('/api/v1/llm/settings', { method: 'PUT', body: JSON.stringify(input) });
+  },
+
+  testConnection(input: {
+    provider?: LlmProviderId;
+    apiKey?: string;
+    baseUrl?: string | null;
+    model?: string;
+  }): Promise<LlmConnectionResult> {
+    return request('/api/v1/llm/settings/test', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  removeSettings(): Promise<{ deleted: boolean }> {
+    return request('/api/v1/llm/settings', { method: 'DELETE' });
+  },
+};

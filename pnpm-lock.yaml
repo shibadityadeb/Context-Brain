@@ -53,6 +53,9 @@ importers:
       '@company-brain/knowledge-engine':
         specifier: workspace:*
         version: link:../../packages/knowledge-engine
+      '@company-brain/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       '@company-brain/meeting-engine':
         specifier: workspace:*
         version: link:../../packages/meeting-engine

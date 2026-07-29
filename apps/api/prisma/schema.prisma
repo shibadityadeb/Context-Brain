@@ -34,6 +34,7 @@ model User {
   auditLogs         AuditLog[]
   apiKeys           APIKey[]
   pendingOAuthGrant PendingOAuthGrant?
+  llmProviderSetting LlmProviderSetting?
 
   folders          Folder[]
   tags             Tag[]
@@ -217,6 +218,27 @@ model PendingOAuthGrant {
   updatedAt DateTime @updatedAt
 
   @@map("pending_oauth_grants")
+}
+
+/// A user's chosen LLM provider for future multi-provider support. The API key
+/// is stored encrypted at rest (AES-256-GCM, see @company-brain/auth) and is
+/// never returned to the client. Not yet wired into Brain — Brain uses Codex.
+model LlmProviderSetting {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Provider id: openai | anthropic | gemini | groq | openrouter | together | custom
+  provider     String
+  apiKeyCipher String
+  baseUrl      String?
+  model        String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("llm_provider_settings")
 }
 
 model Session {
