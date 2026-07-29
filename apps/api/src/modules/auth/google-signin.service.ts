@@ -1,5 +1,6 @@
 import {
   buildAuthorizationUrl,
+  encryptSecret,
   exchangeAuthorizationCode,
   signState,
   verifyState,
@@ -79,46 +80,33 @@ export class GoogleSignInService {
       meta,
     );
 
-    const organizationId = await this.resolveOrganization(result.user.id, userinfo);
-    if (organizationId) {
-      // The sign-in grant carries all workspace scopes: store it and start
-      // syncing every connection right away.
+    const accessTokenExpiresAt = new Date(Date.now() + tokens.expiresInSeconds * 1000);
+    const profile = { email: userinfo.email, hd: userinfo.hd, name: userinfo.name };
+    const active = await this.repo.findActiveMembership(result.user.id);
+
+    if (active) {
+      // Returning member — connect straight to their workspace (no onboarding).
       await this.connectors.establishGoogleConnection({
-        organizationId,
+        organizationId: active.organizationId,
         userId: result.user.id,
         refreshToken: tokens.refreshToken,
-        accessTokenExpiresAt: new Date(Date.now() + tokens.expiresInSeconds * 1000),
+        accessTokenExpiresAt,
         tokenType: tokens.tokenType,
         scope: tokens.scope,
-        profile: { email: userinfo.email, hd: userinfo.hd, name: userinfo.name },
+        profile,
+      });
+    } else {
+      // New / unattached — stash the grant until they pick a workspace during
+      // onboarding, then it auto-establishes with no second consent screen.
+      await this.repo.stashPendingGrant(result.user.id, {
+        refreshTokenCipher: encryptSecret(tokens.refreshToken, connectorEncryptionKey()),
+        scope: tokens.scope,
+        tokenType: tokens.tokenType,
+        accessTokenExpiresAt,
+        profile,
       });
     }
 
     return result;
-  }
-
-  /**
-   * Workspace accounts (`hd` set) share one organization per domain, so
-   * every colleague who signs in lands in the same brain. Personal
-   * accounts get an organization of their own.
-   */
-  private async resolveOrganization(
-    userId: string,
-    userinfo: GoogleUserinfo,
-  ): Promise<string | null> {
-    const membership = await this.repo.findMembership(userId);
-    if (membership) return membership.organizationId;
-
-    if (userinfo.hd) {
-      const existing = await this.repo.findOrganizationByName(userinfo.hd);
-      if (existing) {
-        await this.repo.addMembership(userId, existing.id, 'EMPLOYEE');
-        return existing.id;
-      }
-      return this.repo.createOrganizationWithMembership(userId, userinfo.hd, 'ADMIN');
-    }
-
-    const name = userinfo.name ?? userinfo.email ?? 'Personal workspace';
-    return this.repo.createOrganizationWithMembership(userId, name, 'ADMIN');
   }
 }

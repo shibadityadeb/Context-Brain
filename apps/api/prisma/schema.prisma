@@ -29,10 +29,11 @@ model User {
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
 
-  memberships Membership[]
-  sessions    Session[]
-  auditLogs   AuditLog[]
-  apiKeys     APIKey[]
+  memberships       Membership[]
+  sessions          Session[]
+  auditLogs         AuditLog[]
+  apiKeys           APIKey[]
+  pendingOAuthGrant PendingOAuthGrant?
 
   folders          Folder[]
   tags             Tag[]
@@ -59,7 +60,19 @@ model Organization {
   name String
   slug String @unique
 
+  // Verified company email domain (e.g. "gotoretreats.com"); null for personal
+  // workspaces. Colleagues discover their shared workspace by this domain.
+  emailDomain     String?
+  description     String?
+  logoUrl         String?
+  // The user who created the workspace (owner). Full control.
+  createdByUserId String? @db.Uuid
+  // Membership policy (admin-configurable).
+  requireApproval Boolean @default(false)
+  allowGuests     Boolean @default(true)
+
   memberships Membership[]
+  invitations Invitation[]
   projects    Project[]
   apiKeys     APIKey[]
   auditLogs   AuditLog[]
@@ -79,6 +92,7 @@ model Organization {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@index([emailDomain])
   @@map("organizations")
 }
 
@@ -111,6 +125,7 @@ model Role {
   permissions String[]
 
   memberships Membership[]
+  invitations Invitation[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -129,13 +144,79 @@ model Membership {
   roleId         String       @db.Uuid
   orgRole        Role         @relation(fields: [roleId], references: [id])
 
+  // ACTIVE members see the workspace; PENDING are awaiting admin approval.
+  status     MembershipStatus @default(ACTIVE)
+  // True when the member's email domain differs from the workspace domain (guest).
+  isExternal Boolean          @default(false)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+  @@index([organizationId, status])
   @@map("memberships")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  PENDING
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// An admin invite for a specific email (guest/external collaborators, or
+/// explicit invites). Accepting it creates a membership.
+model Invitation {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  email           String
+  roleId          String @db.Uuid
+  role            Role   @relation(fields: [roleId], references: [id])
+  invitedByUserId String? @db.Uuid
+
+  token     String           @unique
+  status    InvitationStatus @default(PENDING)
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([email])
+  @@map("invitations")
+}
+
+/// Stash of the Google OAuth grant captured at sign-in, held until the user
+/// picks a workspace (onboarding happens between the grant and org selection),
+/// so the connector still auto-establishes with no second consent screen. The
+/// refresh token is stored encrypted with the connector encryption key.
+model PendingOAuthGrant {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider             String    @default("google")
+  refreshTokenCipher   String
+  scope                String?
+  tokenType            String?
+  accessTokenExpiresAt DateTime?
+  profile              Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pending_oauth_grants")
 }
 
 model Session {

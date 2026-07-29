@@ -184,6 +184,14 @@ const envSchema = z.object({
   RECALL_POLLER_MAX_AGE_MINUTES: z.coerce.number().int().positive().default(10080),
   // Max meetings reconciled per tick — bounds Recall API calls.
   RECALL_POLLER_BATCH_LIMIT: z.coerce.number().int().positive().default(25),
+
+  // Consumer email domains that must NOT group strangers into one workspace —
+  // a personal (own) workspace is created instead. Comma-separated, overridable.
+  WORKSPACE_CONSUMER_DOMAINS: z
+    .string()
+    .default(
+      'gmail.com,googlemail.com,yahoo.com,yahoo.co.in,outlook.com,hotmail.com,live.com,msn.com,icloud.com,me.com,mac.com,proton.me,protonmail.com,aol.com,gmx.com,zoho.com,pm.me',
+    ),
 });
 
 const parsed = envSchema.safeParse(process.env);
