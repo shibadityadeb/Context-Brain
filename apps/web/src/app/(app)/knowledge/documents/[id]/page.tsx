@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, HardDrive, Loader2, RefreshCw, Trash2, User } from 'lucide-react';
 import {
   Button,
   Card,
@@ -180,6 +180,11 @@ export default function DocumentViewerPage() {
     tableCount?: number;
   };
 
+  const prov = doc.provenance ?? null;
+  const ownerName = doc.owner?.name ?? doc.owner?.email ?? null;
+  const sourceLabel = prov?.source === 'google' ? 'Google Drive' : (prov?.source ?? null);
+  const hasSource = Boolean(ownerName || sourceLabel);
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -214,6 +219,58 @@ export default function DocumentViewerPage() {
           </Button>
         </div>
       </div>
+
+      {hasSource && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Source</CardTitle>
+            <CardDescription>Where this document comes from in the workspace.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-xs uppercase text-muted-foreground">Owner</p>
+              <p className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5 text-muted-foreground" />
+                {ownerName ?? 'Unassigned'}
+              </p>
+            </div>
+            {sourceLabel && (
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Origin</p>
+                <p className="flex items-center gap-1.5">
+                  <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
+                  {sourceLabel}
+                </p>
+              </div>
+            )}
+            {prov?.lastModifiedByEmail && (
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Last modified by</p>
+                <p className="truncate">{prov.lastModifiedByEmail}</p>
+              </div>
+            )}
+            {prov?.lastSyncAt && (
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Last synced</p>
+                <p>{formatDate(prov.lastSyncAt)}</p>
+              </div>
+            )}
+            {prov?.url && (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <a
+                  href={prov.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-ai hover:underline"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open original in {sourceLabel ?? 'source'}
+                </a>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1">

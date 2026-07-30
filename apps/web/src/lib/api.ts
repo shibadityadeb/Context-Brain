@@ -353,6 +353,19 @@ export interface ConnectorLogList {
 
 // ── Knowledge types (client-side view models) ─────────────────────
 
+/** Where a synced document came from (Google Drive origin, owner, freshness). */
+export interface DocumentProvenance {
+  source?: string;
+  createdByEmail?: string | null;
+  lastModifiedByEmail?: string | null;
+  originalDriveId?: string | null;
+  originalFolderExternalId?: string | null;
+  url?: string | null;
+  sourceVersion?: string | null;
+  syncStatus?: string | null;
+  lastSyncAt?: string | null;
+}
+
 export interface KnowledgeDocument {
   id: string;
   title: string;
@@ -363,6 +376,7 @@ export interface KnowledgeDocument {
   status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED' | 'ARCHIVED';
   language: string | null;
   metadata: Record<string, unknown> | null;
+  provenance?: DocumentProvenance | null;
   currentVersion: number;
   createdAt: string;
   updatedAt: string;
