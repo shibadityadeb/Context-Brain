@@ -102,20 +102,32 @@ Sign-in is Google-only, so OAuth must be configured:
 > without a real domain — for a shareable test instance, point a domain at the
 > VPS and use the reverse proxy below.
 
-## 6. (Recommended) Domain + HTTPS via Caddy
+## 6. (Recommended) Domain + HTTPS via nginx
 
-Put a reverse proxy in front so you get TLS and clean URLs. Example `Caddyfile`:
+Put a reverse proxy in front for TLS and clean URLs. Point two DNS A records at
+the VPS: `brain.example.com` (dashboard) and `api.brain.example.com` (API).
 
+Install nginx + certbot, then use the bundled config:
+
+```bash
+sudo apt install -y nginx
+sudo cp infrastructure/nginx/company-brain.conf /etc/nginx/sites-available/company-brain.conf
+sudo sed -i 's/brain\.example\.com/YOUR_DOMAIN/g' /etc/nginx/sites-available/company-brain.conf  # edit domains
+sudo ln -s /etc/nginx/sites-available/company-brain.conf /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
 ```
-brain.example.com {
-    reverse_proxy localhost:3000
-}
-api.brain.example.com {
-    reverse_proxy localhost:4000
-}
+
+The config proxies `brain.…` → web (`:3000`) and `api.brain.…` → API (`:4000`),
+with **WebSocket upgrade** (live events + meeting streams) and a 60 MB upload
+limit. Add HTTPS — certbot rewrites the blocks to TLS + an HTTP→HTTPS redirect:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d brain.example.com -d api.brain.example.com
 ```
 
-Then set in `.env` (and rebuild web, step 7):
+Then set in `.env` (and rebuild web, step 7 — the API URL is baked in):
 
 ```
 PUBLIC_API_URL=https://api.brain.example.com
@@ -123,6 +135,13 @@ WEB_APP_URL=https://brain.example.com
 API_CORS_ORIGINS=https://brain.example.com
 GOOGLE_REDIRECT_URI=https://api.brain.example.com/api/v1/auth/google/callback
 ```
+
+Only expose 80/443 publicly now — you can firewall off 3000/4000 (the proxy
+reaches them on localhost). Full config: `infrastructure/nginx/company-brain.conf`.
+
+> Prefer Caddy? Two blocks give you the same with automatic TLS:
+> `brain.example.com { reverse_proxy localhost:3000 }` and
+> `api.brain.example.com { reverse_proxy localhost:4000 }`.
 
 ## 7. Updating / redeploying
 
