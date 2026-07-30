@@ -40,6 +40,7 @@ export function KnowledgeCollection({
 }) {
   const [items, setItems] = useState<KnowledgeObjectSummary[] | null>(null);
   const [search, setSearch] = useState('');
+  const [ownerId, setOwnerId] = useState<string | null>(null);
   const typesKey = types.join(',');
 
   const load = useCallback(
@@ -81,14 +82,31 @@ export function KnowledgeCollection({
     }
   }, []);
 
+  // Contributors present in this view (source-document owners) — powers the
+  // "filter by member" control. Derived from loaded items so it only lists
+  // members who actually contributed to this collection.
+  const owners = useMemo(() => {
+    if (!items) return [];
+    const map = new Map<string, { id: string; label: string; count: number }>();
+    for (const i of items) {
+      const o = i.owner;
+      if (!o?.id) continue;
+      const existing = map.get(o.id);
+      if (existing) existing.count += 1;
+      else map.set(o.id, { id: o.id, label: o.name ?? o.email ?? 'Member', count: 1 });
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  }, [items]);
+
   const filtered = useMemo(() => {
     if (!items) return null;
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (i) => i.title.toLowerCase().includes(q) || (i.summary ?? '').toLowerCase().includes(q),
-    );
-  }, [items, search]);
+    return items.filter((i) => {
+      if (ownerId && i.owner?.id !== ownerId) return false;
+      if (!q) return true;
+      return i.title.toLowerCase().includes(q) || (i.summary ?? '').toLowerCase().includes(q);
+    });
+  }, [items, search, ownerId]);
 
   // Segregate entities by the project they belong to (from the graph), falling
   // back to the source document name — so Tasks/Bugs/… are grouped project-wise
@@ -138,6 +156,38 @@ export function KnowledgeCollection({
           </div>
         }
       />
+
+      {owners.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Contributor:</span>
+          <button
+            onClick={() => setOwnerId(null)}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              ownerId === null
+                ? 'border-ai/40 bg-ai/10 text-ai'
+                : 'text-muted-foreground hover:bg-accent'
+            }`}
+          >
+            All
+          </button>
+          {owners.map((o) => (
+            <button
+              key={o.id}
+              onClick={() => setOwnerId(ownerId === o.id ? null : o.id)}
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors ${
+                ownerId === o.id
+                  ? 'border-ai/40 bg-ai/10 text-ai'
+                  : 'text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              {o.label}
+              <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                {o.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {!filtered ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

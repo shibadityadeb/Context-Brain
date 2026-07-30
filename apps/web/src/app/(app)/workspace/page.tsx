@@ -28,6 +28,7 @@ import {
 } from '@/lib/api';
 import { useAuth } from '@/components/auth-provider';
 import { Badge, EmptyState, SkeletonCard } from '@/components/ui/primitives';
+import { SyncStatusCenter } from '@/components/workspace/sync-status-center';
 import { fadeUp, staggerContainer } from '@/lib/motion';
 
 function initials(name: string): string {
@@ -486,6 +487,11 @@ export default function WorkspacePage() {
             <UserPlus className="h-4 w-4" /> Invite
           </Button>
         )}
+      </motion.div>
+
+      {/* Live sync status — the collective brain, working */}
+      <motion.div variants={fadeUp}>
+        <SyncStatusCenter />
       </motion.div>
 
       {/* Invite panel (admin) */}

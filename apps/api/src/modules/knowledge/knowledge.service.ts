@@ -29,6 +29,26 @@ interface Deps {
   embeddings: EmbeddingProvider;
 }
 
+/** Nodes of the workspace documents-by-owner tree (see `documentsTree`). */
+export interface DocNode {
+  id: string;
+  title: string;
+  fileName: string;
+  mimeType: string;
+  status: string;
+  fileSizeBytes: number;
+  currentVersion: number;
+  updatedAt: Date;
+  provenance: unknown;
+}
+export interface FolderNode {
+  id: string;
+  name: string;
+  documents: DocNode[];
+  folders: FolderNode[];
+  documentCount: number;
+}
+
 const slugify = (value: string): string =>
   value
     .toLowerCase()
@@ -187,6 +207,8 @@ export class KnowledgeService {
         take: query.limit,
         include: {
           tags: { include: { tag: true } },
+          owner: { select: { id: true, name: true, email: true } },
+          folder: { select: { id: true, name: true, parentId: true } },
           _count: { select: { chunks: { where: { deletedAt: null } } } },
         },
       }),
@@ -199,6 +221,129 @@ export class KnowledgeService {
       limit: query.limit,
       totalPages: Math.ceil(total / query.limit) || 1,
     };
+  }
+
+  /**
+   * The whole workspace's documents organized by owner → Drive folder tree.
+   * Collective (org-scoped, every member's synced documents) but ownership is
+   * preserved: one section per owner, each mirroring their folder hierarchy so
+   * users immediately see who owns what and where it lived in Drive.
+   */
+  async documentsTree(organizationId: string) {
+    const [folders, docs] = await this.deps.prisma.$transaction([
+      this.deps.prisma.folder.findMany({
+        where: { organizationId, deletedAt: null },
+        select: { id: true, name: true, parentId: true, ownerId: true },
+      }),
+      this.deps.prisma.document.findMany({
+        where: { organizationId, deletedAt: null },
+        orderBy: { title: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          fileName: true,
+          mimeType: true,
+          status: true,
+          fileSizeBytes: true,
+          folderId: true,
+          ownerId: true,
+          currentVersion: true,
+          provenance: true,
+          updatedAt: true,
+          owner: { select: { id: true, name: true, email: true } },
+        },
+      }),
+    ]);
+
+    const UNOWNED = '__unowned__';
+    const ownerKey = (id: string | null) => id ?? UNOWNED;
+
+    // Docs grouped by (owner, folder). rootDocs = documents with no folder.
+    const docsByFolder = new Map<string, typeof docs>();
+    const rootDocsByOwner = new Map<string, typeof docs>();
+    const owners = new Map<
+      string,
+      { id: string | null; name: string | null; email: string | null }
+    >();
+    for (const d of docs) {
+      const key = ownerKey(d.ownerId);
+      if (!owners.has(key)) {
+        owners.set(key, {
+          id: d.ownerId,
+          name: d.owner?.name ?? null,
+          email: d.owner?.email ?? null,
+        });
+      }
+      if (d.folderId) {
+        const list = docsByFolder.get(d.folderId) ?? [];
+        list.push(d);
+        docsByFolder.set(d.folderId, list);
+      } else {
+        const list = rootDocsByOwner.get(key) ?? [];
+        list.push(d);
+        rootDocsByOwner.set(key, list);
+      }
+    }
+
+    const childrenOf = new Map<string | null, typeof folders>();
+    const folderById = new Map<string, (typeof folders)[number]>();
+    for (const f of folders) {
+      folderById.set(f.id, f);
+      const list = childrenOf.get(f.parentId) ?? [];
+      list.push(f);
+      childrenOf.set(f.parentId, list);
+    }
+
+    const serializeDoc = (d: (typeof docs)[number]): DocNode => ({
+      id: d.id,
+      title: d.title,
+      fileName: d.fileName,
+      mimeType: d.mimeType,
+      status: d.status,
+      fileSizeBytes: d.fileSizeBytes,
+      currentVersion: d.currentVersion,
+      updatedAt: d.updatedAt,
+      provenance: d.provenance,
+    });
+
+    // Build a folder subtree, pruning branches with no documents so the tree
+    // only shows folders that actually hold synced content.
+    const buildFolder = (f: (typeof folders)[number]): FolderNode | null => {
+      const childFolders = (childrenOf.get(f.id) ?? [])
+        .map(buildFolder)
+        .filter((n): n is NonNullable<typeof n> => n !== null);
+      const documents = (docsByFolder.get(f.id) ?? []).map(serializeDoc);
+      const documentCount =
+        documents.length + childFolders.reduce((n, c) => n + c.documentCount, 0);
+      if (documentCount === 0) return null;
+      return { id: f.id, name: f.name, documents, folders: childFolders, documentCount };
+    };
+
+    // Top-level folders for an owner = that owner's folders whose parent is not
+    // one of their own folders (root or reparented under a filtered folder).
+    const ownerSections = [...owners.entries()].map(([key, owner]) => {
+      const topFolders = folders
+        .filter((f) => ownerKey(f.ownerId) === key && (!f.parentId || !folderById.has(f.parentId)))
+        .map(buildFolder)
+        .filter((n): n is NonNullable<typeof n> => n !== null)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const rootDocuments = (rootDocsByOwner.get(key) ?? []).map(serializeDoc);
+      const documentCount =
+        rootDocuments.length + topFolders.reduce((n, f) => n + f.documentCount, 0);
+      return { owner, folders: topFolders, rootDocuments, documentCount };
+    });
+
+    ownerSections.sort((a, b) => {
+      // Unowned last, then by document count desc, then name.
+      if (!a.owner.id) return 1;
+      if (!b.owner.id) return -1;
+      if (b.documentCount !== a.documentCount) return b.documentCount - a.documentCount;
+      return (a.owner.name ?? a.owner.email ?? '').localeCompare(
+        b.owner.name ?? b.owner.email ?? '',
+      );
+    });
+
+    return { owners: ownerSections, totalDocuments: docs.length };
   }
 
   async getDocument(organizationId: string, documentId: string) {
@@ -327,7 +472,14 @@ export class KnowledgeService {
       where: { id: { in: fused.map((f) => f.id) }, organizationId, deletedAt: null },
       include: {
         document: {
-          select: { id: true, title: true, fileName: true, mimeType: true, status: true },
+          select: {
+            id: true,
+            title: true,
+            fileName: true,
+            mimeType: true,
+            status: true,
+            owner: { select: { id: true, name: true, email: true } },
+          },
         },
       },
     });
@@ -346,6 +498,13 @@ export class KnowledgeService {
             documentTitle: chunk.document.title,
             fileName: chunk.document.fileName,
             mimeType: chunk.document.mimeType,
+            owner: chunk.document.owner
+              ? {
+                  id: chunk.document.owner.id,
+                  name: chunk.document.owner.name,
+                  email: chunk.document.owner.email,
+                }
+              : null,
             heading: chunk.heading,
             index: chunk.index,
             content: chunk.content,

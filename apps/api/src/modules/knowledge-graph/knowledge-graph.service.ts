@@ -22,6 +22,16 @@ interface Deps {
   embeddings: EmbeddingProvider;
 }
 
+/** Contributing member of a knowledge object (owner of its source document). */
+type KnowledgeOwner = { id: string; name: string | null; email: string | null };
+
+/** Per-object context resolved for the KB list view. */
+interface GroupingEntry {
+  project: { id: string; title: string } | null;
+  source: { id: string; title: string } | null;
+  owner: KnowledgeOwner | null;
+}
+
 /**
  * Read/query surface of the Organizational Knowledge Engine: typed
  * knowledge objects, the relationship graph, timelines, hybrid entity
@@ -97,6 +107,9 @@ export class KnowledgeGraphService {
         tags: object.tags.map((t) => t.tag.name),
         project: grouping.get(object.id)?.project ?? null,
         source: grouping.get(object.id)?.source ?? null,
+        // Contributing member — the owner of the source document this knowledge
+        // was extracted from. Preserves attribution in the collective KB.
+        owner: grouping.get(object.id)?.owner ?? null,
         updatedAt: object.updatedAt,
         createdAt: object.createdAt,
       })),
@@ -112,22 +125,8 @@ export class KnowledgeGraphService {
   private async resolveGrouping(
     organizationId: string,
     objects: Array<{ id: string; type: string; sourceDocumentId: string | null }>,
-  ): Promise<
-    Map<
-      string,
-      {
-        project: { id: string; title: string } | null;
-        source: { id: string; title: string } | null;
-      }
-    >
-  > {
-    const result = new Map<
-      string,
-      {
-        project: { id: string; title: string } | null;
-        source: { id: string; title: string } | null;
-      }
-    >();
+  ): Promise<Map<string, GroupingEntry>> {
+    const result = new Map<string, GroupingEntry>();
     if (objects.length === 0) return result;
     const ids = objects.map((o) => o.id);
     const idSet = new Set(ids);
@@ -167,7 +166,11 @@ export class KnowledgeGraphService {
     const docs = docIds.length
       ? await this.deps.prisma.document.findMany({
           where: { id: { in: docIds } },
-          select: { id: true, title: true },
+          select: {
+            id: true,
+            title: true,
+            owner: { select: { id: true, name: true, email: true } },
+          },
         })
       : [];
     const docById = new Map(docs.map((d) => [d.id, d]));
@@ -178,15 +181,14 @@ export class KnowledgeGraphService {
         object.type === 'PROJECT'
           ? { id: object.id, title: '' }
           : (projectByObject.get(object.id) ?? null);
+      const doc = object.sourceDocumentId ? docById.get(object.sourceDocumentId) : undefined;
       const source = object.sourceDocumentId
-        ? {
-            id: object.sourceDocumentId,
-            title: docById.get(object.sourceDocumentId)?.title ?? 'Document',
-          }
+        ? { id: object.sourceDocumentId, title: doc?.title ?? 'Document' }
         : null;
       result.set(object.id, {
         project: project && project.title === '' ? null : project,
         source,
+        owner: doc?.owner ?? null,
       });
     }
     return result;

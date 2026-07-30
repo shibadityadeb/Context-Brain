@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { FileText, Loader2, Search as SearchIcon } from 'lucide-react';
+import { FileText, Loader2, Search as SearchIcon, User } from 'lucide-react';
 import { Button, Card, CardContent, Input } from '@company-brain/ui';
 import { api, type SearchResponse } from '@/lib/api';
 
@@ -113,11 +113,22 @@ export default function SearchPage() {
                       <span className="font-normal text-muted-foreground">› {result.heading}</span>
                     )}
                   </Link>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    score {result.score.toFixed(4)}
-                    {result.vectorScore !== null && ' · semantic'}
-                    {result.keywordScore !== null && ' · keyword'}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {(result.owner?.name || result.owner?.email) && (
+                      <span
+                        className="flex items-center gap-1 text-xs text-muted-foreground"
+                        title="Contributed by"
+                      >
+                        <User className="h-3 w-3" />
+                        {result.owner.name ?? result.owner.email}
+                      </span>
+                    )}
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      score {result.score.toFixed(4)}
+                      {result.vectorScore !== null && ' · semantic'}
+                      {result.keywordScore !== null && ' · keyword'}
+                    </span>
+                  </div>
                 </div>
                 <p className="line-clamp-4 whitespace-pre-line text-sm text-muted-foreground">
                   {highlight(result.content, response.query)}

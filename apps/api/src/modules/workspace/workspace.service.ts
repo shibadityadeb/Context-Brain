@@ -343,6 +343,134 @@ export class WorkspaceService {
     return this.brief(org);
   }
 
+  /**
+   * One-time (idempotent) backfill for documents synced before per-member
+   * ownership + folder mirroring existed: adopt each document's owner from its
+   * connector, materialize its Drive folder chain, and stamp provenance. Live
+   * sync now does this automatically; this repairs pre-existing rows.
+   */
+  async backfillOwnership(userId: string, organizationId: string) {
+    await this.requireAdmin(userId, organizationId);
+    const { prisma } = this.deps;
+
+    const docs = await prisma.document.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        externalResources: { some: { deletedAt: null } },
+        OR: [{ ownerId: null }, { folderId: null }],
+      },
+      select: {
+        id: true,
+        ownerId: true,
+        currentVersion: true,
+        externalResources: {
+          where: { deletedAt: null },
+          take: 1,
+          select: {
+            externalId: true,
+            parentExternalId: true,
+            driveId: true,
+            ownerEmail: true,
+            url: true,
+            version: true,
+            status: true,
+            connector: { select: { id: true, organizationId: true, ownerId: true } },
+          },
+        },
+      },
+    });
+
+    let updated = 0;
+    for (const doc of docs) {
+      const resource = doc.externalResources[0];
+      if (!resource) continue;
+      const connector = resource.connector;
+      const folderId = await this.ensureFolderFromResource(connector, resource.parentExternalId);
+      await prisma.document.update({
+        where: { id: doc.id },
+        data: {
+          ownerId: doc.ownerId ?? connector.ownerId,
+          folderId,
+          provenance: {
+            source: 'google',
+            connectorId: connector.id,
+            ownerId: connector.ownerId,
+            createdByEmail: resource.ownerEmail,
+            lastModifiedByEmail: resource.ownerEmail,
+            originalDriveId: resource.driveId,
+            originalFolderExternalId: resource.parentExternalId,
+            externalId: resource.externalId,
+            url: resource.url,
+            sourceVersion: resource.version,
+            documentVersion: doc.currentVersion,
+            syncStatus: resource.status,
+            lastSyncAt: new Date().toISOString(),
+            backfilled: true,
+          },
+        },
+      });
+      updated += 1;
+    }
+    return { scanned: docs.length, updated };
+  }
+
+  /**
+   * Mirror a Drive folder chain into `Folder` rows (find-or-create, keyed by
+   * connectorId+sourceExternalId). Mirrors the connector-worker's `ensureFolder`
+   * so backfill produces the same tree live sync does.
+   */
+  private async ensureFolderFromResource(
+    connector: { id: string; organizationId: string; ownerId: string | null },
+    externalId: string | null | undefined,
+    depth = 0,
+    seen: Set<string> = new Set(),
+  ): Promise<string | null> {
+    const { prisma } = this.deps;
+    if (!externalId || depth >= 50 || seen.has(externalId)) return null;
+    seen.add(externalId);
+
+    const folderResource = await prisma.externalResource.findUnique({
+      where: { connectorId_externalId: { connectorId: connector.id, externalId } },
+      select: { title: true, parentExternalId: true, type: true, status: true },
+    });
+    if (!folderResource || folderResource.type !== 'FOLDER' || folderResource.status !== 'ACTIVE') {
+      return null;
+    }
+    const parentId = await this.ensureFolderFromResource(
+      connector,
+      folderResource.parentExternalId,
+      depth + 1,
+      seen,
+    );
+    const name = folderResource.title ?? 'Untitled folder';
+    const existing = await prisma.folder.findUnique({
+      where: {
+        connectorId_sourceExternalId: { connectorId: connector.id, sourceExternalId: externalId },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.folder.update({
+        where: { id: existing.id },
+        data: { name, parentId, deletedAt: null },
+      });
+      return existing.id;
+    }
+    const created = await prisma.folder.create({
+      data: {
+        name,
+        parentId,
+        organizationId: connector.organizationId,
+        ownerId: connector.ownerId,
+        connectorId: connector.id,
+        sourceExternalId: externalId,
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
   // ── Internals ──────────────────────────────────────────────────────────────
 
   /** Read the stashed Google grant, connect it to the org, then discard it. */

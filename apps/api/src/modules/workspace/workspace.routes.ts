@@ -254,6 +254,21 @@ export default async function workspaceRoutes(fastify: FastifyInstance): Promise
       ),
   );
 
+  // ── Maintenance ─────────────────────────────────────────────────────────────
+  app.post(
+    '/backfill-ownership',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags,
+        security,
+        summary: 'Backfill owner/folder/provenance on pre-existing synced documents (admin)',
+      },
+    },
+    async (req, reply) =>
+      reply.send(ok(await service.backfillOwnership(req.user!.id, await activeOrg(req.user!.id)))),
+  );
+
   // ── Settings ──────────────────────────────────────────────────────────────
   app.patch(
     '/',
