@@ -369,14 +369,24 @@ model Folder {
   ownerId        String?      @db.Uuid
   owner          User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
+  // Provenance for folders mirrored from a provider (e.g. a Google Drive
+  // folder). Plain-scalar connectorId (no FK, additive convention) + the
+  // provider-side folder id, so sync can idempotently find-or-create the row.
+  // Both null for manually-created folders (Postgres NULLS DISTINCT means those
+  // never collide on the unique index).
+  connectorId      String? @db.Uuid
+  sourceExternalId String?
+
   documents Document[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  @@unique([connectorId, sourceExternalId])
   @@index([organizationId])
   @@index([parentId])
+  @@index([ownerId])
   @@map("folders")
 }
 
@@ -441,6 +451,11 @@ model Document {
   // Extracted metadata: author, keywords, headings, sections, tables,
   // creationDate — schema-free so parsers can evolve.
   metadata      Json?
+  // Sync provenance for connector-synced documents (owner email, original
+  // Drive id + folder, created/modified by, sync status/time, source version).
+  // Kept in its own column because `metadata` is fully replaced by the parser
+  // on every re-ingestion, which would otherwise clobber provenance.
+  provenance    Json?
 
   currentVersion Int @default(1)
 

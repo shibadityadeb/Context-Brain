@@ -103,6 +103,22 @@ export default async function knowledgeRoutes(fastify: FastifyInstance): Promise
   );
 
   app.get(
+    '/documents/tree',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['knowledge'],
+        summary: 'Workspace documents organized by owner → Drive folder tree',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(ok(await service.documentsTree(organizationId)));
+    },
+  );
+
+  app.get(
     '/supported-types',
     {
       preHandler: [authenticate],

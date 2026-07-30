@@ -72,12 +72,18 @@ export class ConnectorApiService {
     const { organizationId, userId, profile } = input;
     const { prisma } = this.deps;
     const domain = profile.hd ?? profile.email?.split('@')[1] ?? null;
+    const ownerLabel = profile.email ?? profile.name ?? domain ?? 'account';
 
-    // Re-auth flow: reuse the org's existing Google connector row.
+    // Each workspace member owns their OWN Google connector: the Company Brain
+    // grows from every member's connected sources, not one shared credential.
+    // Re-auth reuses THIS user's connector (scoped by ownerId); a new member
+    // gets a fresh connector + credential + initial/incremental sync of their
+    // own Drive/Docs/Sheets/Calendar/Meet/Gmail.
     let connector = await prisma.connector.findFirst({
       where: {
         organizationId,
         provider: 'GOOGLE_WORKSPACE',
+        ownerId: userId,
         deletedAt: null,
       },
     });
@@ -86,6 +92,7 @@ export class ConnectorApiService {
         where: { id: connector.id },
         data: { status: 'PENDING', error: null },
       });
+      // Only revoke THIS owner's stale credentials — never another member's.
       await prisma.oAuthCredential.updateMany({
         where: { connectorId: connector.id, status: 'ACTIVE' },
         data: { status: 'REVOKED' },
@@ -94,7 +101,7 @@ export class ConnectorApiService {
       connector = await prisma.connector.create({
         data: {
           provider: 'GOOGLE_WORKSPACE',
-          name: domain ? `Google Workspace (${domain})` : 'Google Workspace',
+          name: `Google Workspace — ${ownerLabel}`,
           status: 'PENDING',
           organizationId,
           ownerId: userId,

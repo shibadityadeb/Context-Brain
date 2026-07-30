@@ -23,6 +23,10 @@ export const config = {
     corsOrigins: env.API_CORS_ORIGINS.split(',').map((origin) => origin.trim()),
     logLevel: env.LOG_LEVEL,
   },
+  rateLimit: {
+    max: env.RATE_LIMIT_MAX,
+    window: env.RATE_LIMIT_WINDOW,
+  },
   database: {
     url: env.DATABASE_URL,
   },

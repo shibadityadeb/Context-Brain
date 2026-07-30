@@ -4,14 +4,17 @@
  * imperative checks.
  *
  * Scope model:
- *   • SHARED sources (org knowledge graph, memory, meetings) serve BOTH scopes:
- *     Team chat and Personal chat can both draw on the company's shared
- *     knowledge — it isn't anyone's private data.
- *   • PRIVATE sources (a user's email/calendar/drive synced through their own
- *     connector) serve ONLY 'personal', so a shared Team chat can never surface
- *     another person's inbox or calendar.
- * Net effect: Personal = shared knowledge + your own private data; Team = shared
- * knowledge only.
+ *   • SHARED sources (org knowledge graph, memory, meetings, and every member's
+ *     synced Drive/Docs/Sheets/Calendar/Meet/Gmail) serve BOTH scopes: the
+ *     Company Brain is one collective organizational memory that every member
+ *     contributes to through their own connected accounts. Ownership is
+ *     preserved on each item, but retrieval is collective — a Team chat can
+ *     reason over any member's synced sources.
+ *   • PRIVATE sources (a user's own executed Action-Layer actions) serve ONLY
+ *     'personal', so the Brain recalls "what have I done" per user without a
+ *     Team chat surfacing another person's action history.
+ * Net effect: Personal = collective org knowledge + your own action history;
+ * Team = collective org knowledge.
  *
  * To add Slack / GitHub / CRM later: implement `RetrievalSource`, add it to
  * `DEFAULT_SOURCES`, and pick its scopes. Nothing else in the stack changes.
@@ -84,12 +87,13 @@ export const meetingSource: RetrievalSource = {
   },
 };
 
-// ── Private (single-user) sources — personal scope ONLY ─────────────────────
-// The shared knowledge graph already covers a user's own documents (all ingested
-// docs become org knowledge), so the only uniquely-private data is the email /
-// calendar / drive synced through the user's own connector.
+// ── Workspace-wide synced sources — collective, both scopes ─────────────────
+// Every member's Drive/Docs/Sheets/Calendar/Meet/Gmail, synced through their own
+// connector, is part of the shared Company Brain. Ownership is preserved on each
+// ExternalResource (via its connector's ownerId) but retrieval is collective —
+// scoped only by organizationId, so any member can find any member's content.
 
-const PERSONAL_RESOURCE_TYPES: ExternalResourceType[] = [
+const WORKSPACE_RESOURCE_TYPES: ExternalResourceType[] = [
   'EMAIL',
   'EMAIL_THREAD',
   'CALENDAR',
@@ -108,22 +112,22 @@ function resourceKind(type: ExternalResourceType): RetrievedKind {
 }
 
 /**
- * The user's email / calendar / drive — synced through THEIR OWN connector
- * (`connector.ownerId = userId`). This is the only path to a person's private
- * inbox/calendar, and it is personal-scope only, so Team chat can never read it.
+ * Every member's synced Drive/Docs/Sheets/Calendar/Meet/Gmail — collective
+ * workspace knowledge, scoped by organizationId only (never by owner). Each
+ * item keeps its owner (through its connector) for attribution, but any member
+ * — and a Team chat — can retrieve it, so the Brain reasons over the whole
+ * organization's synchronized memory.
  */
-export const personalResourceSource: RetrievalSource = {
-  name: 'personal-resources',
-  scopes: ['personal'],
+export const workspaceResourceSource: RetrievalSource = {
+  name: 'workspace-resources',
+  scopes: SHARED_SCOPES,
   async search(ctx) {
-    if (!ctx.userId) return [];
     const rows = await ctx.prisma.externalResource.findMany({
       where: {
         organizationId: ctx.organizationId,
         deletedAt: null,
         status: 'ACTIVE',
-        type: { in: PERSONAL_RESOURCE_TYPES },
-        connector: { is: { ownerId: ctx.userId } },
+        type: { in: WORKSPACE_RESOURCE_TYPES },
         OR: containsAny(ctx.terms, ['title']),
       },
       orderBy: { externalUpdatedAt: 'desc' },
@@ -175,7 +179,7 @@ export const DEFAULT_SOURCES: RetrievalSource[] = [
   knowledgeGraphSource,
   memorySource,
   meetingSource,
-  personalResourceSource,
+  workspaceResourceSource,
   actionSource,
 ];
 

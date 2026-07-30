@@ -314,6 +314,105 @@ export function createConnectorActivities(ctx: WorkerContext) {
     });
   }
 
+  /**
+   * Mirror the provider-side folder hierarchy (already captured as FOLDER
+   * ExternalResources) into `Folder` rows so the workspace can render each
+   * member's Drive tree. Recursively find-or-creates the folder chain for a
+   * Drive folder id, keyed idempotently by (connectorId, sourceExternalId).
+   * Returns the materialized Folder id, or null when the folder isn't synced
+   * yet (the document then sits at the member's root until the folder arrives).
+   */
+  const MAX_FOLDER_DEPTH = 50;
+  async function ensureFolder(
+    connector: { id: string; organizationId: string; ownerId: string | null },
+    externalId: string | null | undefined,
+    depth = 0,
+    seen: Set<string> = new Set(),
+  ): Promise<string | null> {
+    if (!externalId || depth >= MAX_FOLDER_DEPTH || seen.has(externalId)) return null;
+    seen.add(externalId);
+
+    const folderResource = await prisma.externalResource.findUnique({
+      where: { connectorId_externalId: { connectorId: connector.id, externalId } },
+      select: { title: true, parentExternalId: true, type: true, status: true },
+    });
+    // Not synced yet, or trashed — don't fabricate a home for the document.
+    if (!folderResource || folderResource.type !== 'FOLDER') return null;
+    if (folderResource.status !== 'ACTIVE') return null;
+
+    const parentId = await ensureFolder(
+      connector,
+      folderResource.parentExternalId,
+      depth + 1,
+      seen,
+    );
+
+    const name = folderResource.title ?? 'Untitled folder';
+    const existing = await prisma.folder.findUnique({
+      where: {
+        connectorId_sourceExternalId: { connectorId: connector.id, sourceExternalId: externalId },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      // Keep name + parent fresh so renames and moves of the folder itself
+      // are reflected on the next time any child is reconciled.
+      await prisma.folder.update({
+        where: { id: existing.id },
+        data: { name, parentId, deletedAt: null },
+      });
+      return existing.id;
+    }
+    const created = await prisma.folder.create({
+      data: {
+        name,
+        parentId,
+        organizationId: connector.organizationId,
+        ownerId: connector.ownerId,
+        connectorId: connector.id,
+        sourceExternalId: externalId,
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /**
+   * Sync provenance persisted on `Document.provenance` (survives the parser's
+   * full replace of `Document.metadata`). Maintains accountability: who owns
+   * the source, where it lives in Drive, and how fresh the sync is.
+   */
+  function buildProvenance(
+    connector: { id: string; ownerId: string | null },
+    resource: {
+      externalId: string;
+      driveId: string | null;
+      parentExternalId: string | null;
+      ownerEmail: string | null;
+      url: string | null;
+      version: string | null;
+      status: string;
+    },
+    lastModifiedBy: string | null,
+    documentVersion: number,
+  ): Prisma.InputJsonValue {
+    return {
+      source: 'google',
+      connectorId: connector.id,
+      ownerId: connector.ownerId,
+      createdByEmail: resource.ownerEmail,
+      lastModifiedByEmail: lastModifiedBy ?? resource.ownerEmail,
+      originalDriveId: resource.driveId,
+      originalFolderExternalId: resource.parentExternalId,
+      externalId: resource.externalId,
+      url: resource.url,
+      sourceVersion: resource.version,
+      documentVersion,
+      syncStatus: resource.status,
+      lastSyncAt: new Date().toISOString(),
+    };
+  }
+
   const activities = {
     async discoverWorkspace(input: { connectorId: string }): Promise<DiscoverWorkspaceOutput> {
       const connector = await requireConnector(input.connectorId);
@@ -627,6 +726,22 @@ export function createConnectorActivities(ctx: WorkerContext) {
           checksum,
           organizationId: connector.organizationId,
         };
+
+        // Preserve ownership + Drive folder structure so the workspace can
+        // attribute and organize this document by member and folder.
+        const folderId = await ensureFolder(connector, resource.parentExternalId);
+        const latestVersion = await prisma.resourceVersion.findFirst({
+          where: { resourceId: resource.id },
+          orderBy: { createdAt: 'desc' },
+          select: { modifiedByEmail: true },
+        });
+        const provenance = buildProvenance(
+          connector,
+          resource,
+          latestVersion?.modifiedByEmail ?? null,
+          version,
+        );
+
         if (!document) {
           await prisma.document.create({
             data: {
@@ -641,6 +756,9 @@ export function createConnectorActivities(ctx: WorkerContext) {
               status: 'UPLOADED',
               currentVersion: version,
               organizationId: connector.organizationId,
+              ownerId: connector.ownerId,
+              folderId,
+              provenance,
               versions: { create: versionData },
             },
           });
@@ -667,6 +785,11 @@ export function createConnectorActivities(ctx: WorkerContext) {
               checksum,
               status: 'UPLOADED',
               currentVersion: version,
+              // Re-derive on every sync so folder moves + provenance stay fresh;
+              // adopt ownership if this document predates owner attribution.
+              ownerId: document.ownerId ?? connector.ownerId,
+              folderId,
+              provenance,
               versions: { create: versionData },
             },
           });

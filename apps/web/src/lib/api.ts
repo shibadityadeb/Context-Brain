@@ -161,6 +161,14 @@ export const api = {
     return request(`/api/v1/knowledge/documents/${documentId}`);
   },
 
+  documentsTree(): Promise<DocumentsTree> {
+    return request('/api/v1/knowledge/documents/tree');
+  },
+
+  syncStatus(): Promise<SyncStatus> {
+    return request('/api/v1/activity/sync');
+  },
+
   getDocumentChunks(documentId: string): Promise<DocumentChunk[]> {
     return request(`/api/v1/knowledge/documents/${documentId}/chunks`);
   },
@@ -369,6 +377,59 @@ export interface DocumentList {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+// ── Workspace documents tree (by owner → Drive folder) ────────────
+
+export interface TreeDocument {
+  id: string;
+  title: string;
+  fileName: string;
+  mimeType: string;
+  status: KnowledgeDocument['status'];
+  fileSizeBytes: number;
+  currentVersion: number;
+  updatedAt: string;
+  provenance: Record<string, unknown> | null;
+}
+
+export interface TreeFolder {
+  id: string;
+  name: string;
+  documents: TreeDocument[];
+  folders: TreeFolder[];
+  documentCount: number;
+}
+
+export interface OwnerSection {
+  owner: { id: string | null; name: string | null; email: string | null };
+  folders: TreeFolder[];
+  rootDocuments: TreeDocument[];
+  documentCount: number;
+}
+
+export interface DocumentsTree {
+  owners: OwnerSection[];
+  totalDocuments: number;
+}
+
+// ── Per-member sync status center ─────────────────────────────────
+
+export interface SyncMember {
+  connectorId: string;
+  provider: string;
+  owner: { id: string | null; name: string | null; email: string | null };
+  connectorStatus: string;
+  lastSyncAt: string | null;
+  syncing: Array<{ service: string; type: string; since: string | null }>;
+}
+
+export interface SyncStatus {
+  active: boolean;
+  members: SyncMember[];
+  knowledge: { extracting: number };
+  meetings: Array<{ id: string; title: string; status: string }>;
+  updatedAt: string;
 }
 
 export interface DocumentChunk {

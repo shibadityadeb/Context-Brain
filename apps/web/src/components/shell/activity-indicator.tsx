@@ -117,7 +117,12 @@ export function ActivityIndicator() {
       setDismissed(false);
       setJustFinished(false);
       extend();
+      // Fetch counts ONCE when a work session begins, then let the interval
+      // refresh them. Crucially we do NOT fetch per event: a single sync can
+      // emit a burst of pipeline events (more so now that every member's Drive
+      // syncs), and one request per event would flood the API → 429s.
       if (!pollTimer.current) {
+        refreshStatus();
         pollTimer.current = setInterval(() => {
           activityApi
             .status()
@@ -131,7 +136,6 @@ export function ActivityIndicator() {
             .catch(() => undefined);
         }, 4000);
       }
-      refreshStatus();
     },
     [extend, refreshStatus],
   );
