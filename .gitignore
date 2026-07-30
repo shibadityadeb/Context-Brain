@@ -12,6 +12,7 @@ out/
 .env
 .env.*
 !.env.example
+!.env.deploy.example
 
 # logs
 *.log

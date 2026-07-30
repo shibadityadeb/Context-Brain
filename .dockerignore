@@ -1,0 +1,27 @@
+# Never copy host build artifacts into the image — pnpm installs fresh inside
+# the container so native binaries (prisma, sharp, swc) match the image OS.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+
+# VCS / local
+.git
+.gitignore
+.husky
+
+# Env & secrets — provided at runtime via compose env_file, never baked in.
+.env
+.env.*
+!.env.deploy.example
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+
+# Scratch, docs build output, and the heavy meeting-bot browser profile
+scratchpad
+services/meeting-bot/.meeting-bot
+**/*.log
