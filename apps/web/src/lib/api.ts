@@ -470,6 +470,8 @@ export interface SearchResult {
   documentTitle: string;
   fileName: string;
   mimeType: string;
+  /** The member whose document this result came from. */
+  owner: KnowledgeOwner | null;
   heading: string | null;
   index: number;
   content: string;
@@ -485,6 +487,13 @@ export interface SearchResponse {
 }
 
 // ── Knowledge Graph (Phase 2) types ───────────────────────────────
+
+/** Contributing member — owner of the source document a piece of knowledge came from. */
+export interface KnowledgeOwner {
+  id: string | null;
+  name: string | null;
+  email: string | null;
+}
 
 export interface KnowledgeObjectSummary {
   id: string;
@@ -503,6 +512,8 @@ export interface KnowledgeObjectSummary {
   project?: { id: string; title: string } | null;
   /** The source document it was extracted from (fallback grouping). */
   source?: { id: string; title: string } | null;
+  /** The member who contributed this knowledge (source document owner). */
+  owner?: KnowledgeOwner | null;
   createdAt: string;
   updatedAt: string;
 }

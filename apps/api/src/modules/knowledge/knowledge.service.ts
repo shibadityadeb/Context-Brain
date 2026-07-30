@@ -472,7 +472,14 @@ export class KnowledgeService {
       where: { id: { in: fused.map((f) => f.id) }, organizationId, deletedAt: null },
       include: {
         document: {
-          select: { id: true, title: true, fileName: true, mimeType: true, status: true },
+          select: {
+            id: true,
+            title: true,
+            fileName: true,
+            mimeType: true,
+            status: true,
+            owner: { select: { id: true, name: true, email: true } },
+          },
         },
       },
     });
@@ -491,6 +498,13 @@ export class KnowledgeService {
             documentTitle: chunk.document.title,
             fileName: chunk.document.fileName,
             mimeType: chunk.document.mimeType,
+            owner: chunk.document.owner
+              ? {
+                  id: chunk.document.owner.id,
+                  name: chunk.document.owner.name,
+                  email: chunk.document.owner.email,
+                }
+              : null,
             heading: chunk.heading,
             index: chunk.index,
             content: chunk.content,

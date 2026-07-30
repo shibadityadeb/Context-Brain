@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Trash2 } from 'lucide-react';
+import { Trash2, User } from 'lucide-react';
 import { cn } from '@company-brain/ui';
 import type { KnowledgeObjectSummary } from '@/lib/api';
 import { entityColor, entityIcon, entityLabel, humanStatus, statusTone } from '@/lib/entities';
@@ -67,6 +67,12 @@ export function EntityCard({
         <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
           {entity.mentionCount > 0 && <span>{entity.mentionCount} mentions</span>}
           {entity.relationshipCount > 0 && <span>{entity.relationshipCount} links</span>}
+          {(entity.owner?.name || entity.owner?.email) && (
+            <span className="flex items-center gap-1" title="Contributed by">
+              <User className="h-3 w-3" />
+              {entity.owner.name ?? entity.owner.email}
+            </span>
+          )}
           <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100">
             Open →
           </span>
