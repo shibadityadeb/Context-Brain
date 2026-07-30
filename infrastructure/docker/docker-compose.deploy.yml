@@ -1,0 +1,235 @@
+# Full-stack, single-VPS test deployment: infrastructure + all app services
+# built from the repo's Dockerfile. Run from the repo root:
+#
+#   cp .env.deploy.example .env         # then fill in secrets
+#   docker compose -f infrastructure/docker/docker-compose.deploy.yml build
+#   docker compose -f infrastructure/docker/docker-compose.deploy.yml up -d
+#
+# See DEPLOY.md for the full walkthrough (secrets, reverse proxy, TLS, OAuth).
+name: company-brain-deploy
+
+# ── Shared config for every app container (one image, different commands) ────
+x-app-env: &app-env
+  NODE_ENV: production
+  # Point every service at the compose network hostnames (these override
+  # whatever is in .env so the app never has to know container names).
+  DATABASE_URL: postgresql://brain:${POSTGRES_PASSWORD:-brain_dev_password}@postgres:5432/company_brain?schema=public
+  REDIS_HOST: redis
+  REDIS_PORT: '6379'
+  QDRANT_URL: http://qdrant:6333
+  STORAGE_ENDPOINT: minio
+  STORAGE_PORT: '9000'
+  STORAGE_USE_SSL: 'false'
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_WORKER_HEALTH_URL: http://temporal-worker:4100/health
+  CONNECTOR_WORKER_HEALTH_URL: http://connector-worker:4101/health
+  MEETING_WORKER_HEALTH_URL: http://meeting-worker:4102/health
+  MEETING_BOT_URL: http://meeting-bot:4200
+
+x-app: &app
+  image: company-brain/app:latest
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args:
+      # The browser-facing API URL, baked into the web bundle at build time.
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4000}
+  restart: unless-stopped
+  env_file:
+    - ../../.env
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    qdrant: { condition: service_healthy }
+    minio: { condition: service_healthy }
+    temporal: { condition: service_healthy }
+
+services:
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brain_dev_password}
+      POSTGRES_DB: company_brain
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U brain -d company_brain']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-brain_minio}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-brain_minio_password}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ['CMD-SHELL', "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  temporal:
+    image: temporalio/auto-setup:1.27
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DB: postgres12
+      DB_PORT: '5432'
+      POSTGRES_USER: brain
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-brain_dev_password}
+      POSTGRES_SEEDS: postgres
+      DEFAULT_NAMESPACE: company-brain
+      DEFAULT_NAMESPACE_RETENTION: 7d
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
+    healthcheck:
+      test: ['CMD-SHELL', 'temporal operator cluster health --address temporal:7233 || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── One-shot schema migrate + role seed (runs, then exits) ──────────────────
+  migrate:
+    <<: *app
+    restart: 'no'
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      <<: *app-env
+    command:
+      - sh
+      - -c
+      - >
+        pnpm --filter @company-brain/api db:deploy &&
+        (pnpm --filter @company-brain/api db:seed || echo 'seed already applied')
+
+  # ── Application services (one image, different start commands) ───────────────
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      temporal: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    command: ['pnpm', '--filter', '@company-brain/api', 'start']
+    ports:
+      - '${API_PORT:-4000}:4000'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4000/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    <<: *app
+    environment:
+      <<: *app-env
+    depends_on:
+      api: { condition: service_healthy }
+    command: ['pnpm', '--filter', '@company-brain/web', 'start']
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:3000 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *app
+    environment:
+      <<: *app-env
+    command: ['pnpm', '--filter', '@company-brain/worker', 'start']
+
+  temporal-worker:
+    <<: *app
+    environment:
+      <<: *app-env
+    depends_on:
+      temporal: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    command: ['pnpm', '--filter', '@company-brain/temporal-worker', 'start']
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4100/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  connector-worker:
+    <<: *app
+    environment:
+      <<: *app-env
+    depends_on:
+      temporal: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    command: ['pnpm', '--filter', '@company-brain/connector-worker', 'start']
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4101/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  meeting-worker:
+    <<: *app
+    environment:
+      <<: *app-env
+    depends_on:
+      temporal: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    command: ['pnpm', '--filter', '@company-brain/meeting-worker', 'start']
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4102/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  qdrant_data:
