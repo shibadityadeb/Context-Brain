@@ -100,6 +100,75 @@ export function completeSignIn(): Promise<boolean> {
   return tryRefresh();
 }
 
+// ── MCP servers ───────────────────────────────────────────────────────────────
+
+export type McpScopeConfig = {
+  mode: 'workspace' | 'scoped';
+  projectIds?: string[];
+  documentIds?: string[];
+  meetingIds?: string[];
+  memberIds?: string[];
+};
+
+export interface McpServerSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  scopeConfig: McpScopeConfig;
+  tools: string[];
+  visibility: string;
+  status: 'ACTIVE' | 'DISABLED';
+  createdById: string | null;
+  ownerId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  connectionCount: number;
+  keyCount: number;
+  url: string;
+}
+
+export interface McpKey {
+  id: string;
+  name: string;
+  prefix: string;
+  readOnly: boolean;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface McpConnectionInfo {
+  id: string;
+  clientName: string | null;
+  clientVersion: string | null;
+  lastSeenAt: string;
+}
+
+export interface McpServerDetail extends McpServerSummary {
+  prompt: string | null;
+  keys: McpKey[];
+  connections: McpConnectionInfo[];
+}
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+}
+
+export interface McpKeySecret {
+  secret: string;
+  key: McpKey;
+}
+
+export interface CreateMcpServerInput {
+  name: string;
+  description?: string;
+  scopeConfig?: McpScopeConfig;
+  tools?: string[];
+  prompt?: string;
+}
+
 export const api = {
   async logout(): Promise<void> {
     try {
@@ -231,6 +300,52 @@ export const api = {
 
   getConnectorStatus(connectorId: string): Promise<ConnectorStatusReport> {
     return request(`/api/v1/connectors/${connectorId}/status`);
+  },
+
+  // ── MCP servers ─────────────────────────────────────────────────────────────
+  listMcpServers(): Promise<McpServerSummary[]> {
+    return request('/api/v1/mcp-servers');
+  },
+
+  mcpToolCatalog(): Promise<McpToolInfo[]> {
+    return request('/api/v1/mcp-servers/tool-catalog');
+  },
+
+  getMcpServer(id: string): Promise<McpServerDetail> {
+    return request(`/api/v1/mcp-servers/${id}`);
+  },
+
+  createMcpServer(body: CreateMcpServerInput): Promise<McpServerDetail> {
+    return request('/api/v1/mcp-servers', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  updateMcpServer(
+    id: string,
+    body: Partial<CreateMcpServerInput> & { status?: 'ACTIVE' | 'DISABLED' },
+  ): Promise<McpServerSummary> {
+    return request(`/api/v1/mcp-servers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  deleteMcpServer(id: string): Promise<{ deleted: boolean }> {
+    return request(`/api/v1/mcp-servers/${id}`, { method: 'DELETE' });
+  },
+
+  createMcpKey(id: string, body: { name: string; expiresAt?: string }): Promise<McpKeySecret> {
+    return request(`/api/v1/mcp-servers/${id}/keys`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  rotateMcpKey(id: string, keyId: string): Promise<McpKeySecret> {
+    return request(`/api/v1/mcp-servers/${id}/keys/${keyId}/rotate`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  revokeMcpKey(id: string, keyId: string): Promise<{ revoked: boolean }> {
+    return request(`/api/v1/mcp-servers/${id}/keys/${keyId}`, { method: 'DELETE' });
   },
 
   listConnectorResources(

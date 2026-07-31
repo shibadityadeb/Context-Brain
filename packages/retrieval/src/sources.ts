@@ -22,22 +22,41 @@
 
 import type { ExternalResourceType } from '@prisma/client';
 import { containsAny, rank } from './rank.js';
-import type { RetrievalContext, RetrievalSource, RetrievedItem, RetrievedKind } from './types.js';
+import type {
+  KnowledgeScopeFilter,
+  RetrievalContext,
+  RetrievalSource,
+  RetrievedItem,
+  RetrievedKind,
+} from './types.js';
 
 // ── Shared (org-wide) sources — available to BOTH team and personal chats ────
 
 const SHARED_SCOPES = ['team', 'personal'] as const;
+
+/**
+ * The id allowlist a source must honor for its kind under the active scope
+ * filter. `null` ⇒ no filter (read org-wide); a `string[]` ⇒ restrict to those
+ * ids, where an empty list means nothing of this kind is in scope (fail closed).
+ */
+function allowlist(ctx: RetrievalContext, kind: keyof KnowledgeScopeFilter): string[] | null {
+  if (!ctx.filter) return null;
+  return ctx.filter[kind] ?? [];
+}
 
 /** The shared knowledge graph — entities, projects, decisions, extracted docs. */
 export const knowledgeGraphSource: RetrievalSource = {
   name: 'knowledge-graph',
   scopes: SHARED_SCOPES,
   async search(ctx) {
+    const ids = allowlist(ctx, 'knowledgeIds');
+    if (ids && ids.length === 0) return [];
     const rows = await ctx.prisma.knowledgeObject.findMany({
       where: {
         organizationId: ctx.organizationId,
         deletedAt: null,
         mergedIntoId: null,
+        ...(ids ? { id: { in: ids } } : {}),
         OR: containsAny(ctx.terms, ['title', 'summary', 'description']),
       },
       orderBy: { updatedAt: 'desc' },
@@ -53,11 +72,14 @@ export const memorySource: RetrievalSource = {
   name: 'memory',
   scopes: SHARED_SCOPES,
   async search(ctx) {
+    const ids = allowlist(ctx, 'memoryIds');
+    if (ids && ids.length === 0) return [];
     const rows = await ctx.prisma.memory.findMany({
       where: {
         organizationId: ctx.organizationId,
         deletedAt: null,
         status: 'ACTIVE',
+        ...(ids ? { id: { in: ids } } : {}),
         OR: containsAny(ctx.terms, ['subject', 'summary']),
       },
       orderBy: { importance: 'desc' },
@@ -73,10 +95,13 @@ export const meetingSource: RetrievalSource = {
   name: 'meeting',
   scopes: SHARED_SCOPES,
   async search(ctx) {
+    const ids = allowlist(ctx, 'meetingIds');
+    if (ids && ids.length === 0) return [];
     const rows = await ctx.prisma.meeting.findMany({
       where: {
         organizationId: ctx.organizationId,
         deletedAt: null,
+        ...(ids ? { id: { in: ids } } : {}),
         OR: containsAny(ctx.terms, ['title', 'description']),
       },
       orderBy: { scheduledStart: 'desc' },
@@ -122,12 +147,15 @@ export const workspaceResourceSource: RetrievalSource = {
   name: 'workspace-resources',
   scopes: SHARED_SCOPES,
   async search(ctx) {
+    const ids = allowlist(ctx, 'resourceIds');
+    if (ids && ids.length === 0) return [];
     const rows = await ctx.prisma.externalResource.findMany({
       where: {
         organizationId: ctx.organizationId,
         deletedAt: null,
         status: 'ACTIVE',
         type: { in: WORKSPACE_RESOURCE_TYPES },
+        ...(ids ? { id: { in: ids } } : {}),
         OR: containsAny(ctx.terms, ['title']),
       },
       orderBy: { externalUpdatedAt: 'desc' },
