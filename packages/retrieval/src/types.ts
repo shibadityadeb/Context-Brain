@@ -33,6 +33,21 @@ export interface RetrievedItem {
   url?: string | null;
 }
 
+/**
+ * Per-kind id allowlists used to confine retrieval to a provable knowledge
+ * slice (e.g. an MCP server scoped to specific projects). When a filter is
+ * present, every source restricts its reads to the ids listed for its kind —
+ * a missing or empty list means "nothing of this kind is in scope" (fail
+ * closed), so a scoped server can never over-expose. `undefined` filter (the
+ * default) means unrestricted org-wide retrieval.
+ */
+export interface KnowledgeScopeFilter {
+  knowledgeIds?: string[];
+  memoryIds?: string[];
+  meetingIds?: string[];
+  resourceIds?: string[];
+}
+
 export interface RetrieveOptions {
   /** Max items to return across all kinds/sources. */
   limit?: number;
@@ -42,6 +57,8 @@ export interface RetrieveOptions {
   scope?: RetrievalScope;
   /** Required for 'personal' scope — the owning user whose data may be read. */
   userId?: string;
+  /** Confine retrieval to a provable id allowlist (fail-closed). */
+  filter?: KnowledgeScopeFilter;
 }
 
 export interface RetrievalService {
@@ -69,6 +86,11 @@ export interface RetrievalContext {
   terms: string[];
   /** Per-source fetch cap hint. */
   limit: number;
+  /**
+   * When set, sources must confine reads to this id allowlist (fail-closed).
+   * `null` means unrestricted org-wide retrieval.
+   */
+  filter: KnowledgeScopeFilter | null;
 }
 
 /** A pluggable knowledge source. Register more to widen retrieval; nothing else changes. */

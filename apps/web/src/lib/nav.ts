@@ -14,6 +14,7 @@ import {
   Library,
   Network,
   Search,
+  Server,
   Settings,
   Sparkles,
   Upload,
@@ -65,6 +66,7 @@ export const NAV: NavGroup[] = [
     items: [
       { href: '/knowledge', label: 'Documents', icon: FileText, match: 'exact' },
       { href: '/connectors', label: 'Integrations', icon: Cable },
+      { href: '/mcp', label: 'MCP Servers', icon: Server },
     ],
   },
   {

@@ -66,6 +66,7 @@ export class ScopedRetrievalService implements RetrievalService {
       query,
       terms,
       limit: this.config.perSourceLimit,
+      filter: options.filter ?? null,
     };
 
     const active = this.sources.filter((s) => s.scopes.includes(scope));

@@ -313,6 +313,110 @@ model AuditLog {
 }
 
 // ────────────────────────────────────────────────────────────────
+// MCP (Model Context Protocol) — expose the Company Brain as a
+// permission-aware, always-live context server for external AI tools
+// (Claude Desktop, Cursor, VS Code, …). An organization owns one or
+// more MCP servers; each exposes a configurable slice of collective
+// knowledge and is reached over Streamable HTTP with a hashed API key.
+// Scalar org/user FKs (additive, no cross-model relations) per repo
+// convention; real relations only among the MCP models themselves.
+// ────────────────────────────────────────────────────────────────
+
+enum McpServerStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum McpVisibility {
+  WORKSPACE // every org member can see/use (v1 default)
+  PRIVATE // creator only (reserved — not enforced in v1)
+  SHARED // selected members (reserved)
+  PUBLIC // reserved future
+}
+
+model McpServer {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String @db.Uuid
+
+  name        String
+  description String?
+
+  // { mode: 'workspace' } exposes all org knowledge.
+  // { mode: 'scoped', projectIds?, documentIds?, meetingIds?, memberIds? }
+  // restricts to a provable slice (fail-closed at retrieval time).
+  scopeConfig Json @default("{\"mode\":\"workspace\"}")
+
+  // Enabled tool names (subset of the server's tool catalog).
+  tools String[]
+  // Optional system prompt surfaced to connecting clients.
+  prompt String?
+
+  visibility McpVisibility   @default(WORKSPACE)
+  status     McpServerStatus @default(ACTIVE)
+
+  // Accountability — user ids (scalar, no relation per convention).
+  createdById      String? @db.Uuid
+  ownerId          String? @db.Uuid
+  lastModifiedById String? @db.Uuid
+
+  apiKeys     McpApiKey[]
+  connections McpConnection[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("mcp_servers")
+}
+
+model McpApiKey {
+  id String @id @default(uuid()) @db.Uuid
+
+  mcpServerId String    @db.Uuid
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+
+  name String
+
+  // First characters of the key, shown in UIs for identification.
+  prefix   String  @unique
+  keyHash  String  @unique
+  readOnly Boolean @default(true)
+
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  createdById String? @db.Uuid
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([mcpServerId])
+  @@map("mcp_api_keys")
+}
+
+model McpConnection {
+  id String @id @default(uuid()) @db.Uuid
+
+  mcpServerId String    @db.Uuid
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+
+  // Client identity from the MCP initialize request (e.g. "Claude Desktop").
+  clientName    String?
+  clientVersion String?
+
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@unique([mcpServerId, clientName])
+  @@index([mcpServerId])
+  @@map("mcp_connections")
+}
+
+// ────────────────────────────────────────────────────────────────
 // Phase 1 — Knowledge Brain
 // Documents, versions, chunks, embeddings, folders, tags, sources
 // and processing jobs. Every model carries organization scoping,
