@@ -14,7 +14,7 @@ import {
   Input,
 } from '@company-brain/ui';
 import { api, type McpServerDetail } from '@/lib/api';
-import { scopeSummary } from '../page';
+import { scopeSummary } from '../scope-summary';
 
 const PLACEHOLDER = '<YOUR_MCP_API_KEY>';
 
