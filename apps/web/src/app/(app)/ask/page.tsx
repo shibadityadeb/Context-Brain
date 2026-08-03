@@ -13,6 +13,7 @@ import { useLiveRefresh } from '@/lib/use-live';
 import { ConversationSidebar } from './_components/conversation-sidebar';
 import { ChatPanel } from './_components/chat-panel';
 import { ReplayPanel } from './_components/replay-panel';
+import { WhatChangedPanel } from './_components/what-changed-panel';
 
 function tempMessage(role: string, content: string): ConversationMessage {
   return {
@@ -36,6 +37,7 @@ function AskWorkspace() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [replayQuery, setReplayQuery] = useState<string | null>(null);
+  const [changesQuery, setChangesQuery] = useState<string | null>(null);
   const detailReqId = useRef(0);
 
   const loadList = useCallback(async () => {
@@ -128,11 +130,18 @@ function AskWorkspace() {
     await loadList();
   }
 
-  // Replay takes over the workspace when triggered from the "/" command menu.
+  // Replay / What Changed take over the workspace when triggered from "/".
   if (replayQuery !== null) {
     return (
       <div className="h-[calc(100vh-9rem)] min-h-0">
         <ReplayPanel initialQuery={replayQuery} onExit={() => setReplayQuery(null)} />
+      </div>
+    );
+  }
+  if (changesQuery !== null) {
+    return (
+      <div className="h-[calc(100vh-9rem)] min-h-0">
+        <WhatChangedPanel initialQuery={changesQuery} onExit={() => setChangesQuery(null)} />
       </div>
     );
   }
@@ -159,6 +168,7 @@ function AskWorkspace() {
           sending={sending}
           onSend={(q) => void send(q)}
           onReplay={(q) => setReplayQuery(q)}
+          onChanges={(q) => setChangesQuery(q)}
         />
       </main>
     </div>

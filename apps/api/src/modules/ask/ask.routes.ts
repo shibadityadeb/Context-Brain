@@ -4,8 +4,10 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { ok } from '../../utils/response.js';
 import { AskService } from './ask.service.js';
 import { ReplayService } from './replay.service.js';
+import { ChangeDetectionService } from './change-detection.service.js';
 import { askBodySchema } from './ask.schemas.js';
 import { replayBodySchema } from './replay.schemas.js';
+import { changesBodySchema } from './changes.schemas.js';
 import {
   conversationIdParamsSchema,
   createConversationSchema,
@@ -28,6 +30,7 @@ export default async function askRoutes(fastify: FastifyInstance): Promise<void>
     embeddings: app.embeddings,
     temporal: app.temporal,
   });
+  const changes = new ChangeDetectionService({ prisma: app.prisma });
 
   // ── Legacy stateless ask (team scope) — kept for back-compat ────────────────
   app.post(
@@ -62,6 +65,24 @@ export default async function askRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const organizationId = await replay.resolveOrganization(request.user!.id);
       return reply.send(ok(await replay.replay(organizationId, request.body)));
+    },
+  );
+
+  // ── What Changed: material organizational change over a window ───────────────
+  app.post(
+    '/changes',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['ask'],
+        summary: 'What changed — material organizational changes over a time window',
+        security: [{ bearerAuth: [] }],
+        body: changesBodySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await changes.resolveOrganization(request.user!.id);
+      return reply.send(ok(await changes.detect(organizationId, request.body)));
     },
   );
 
