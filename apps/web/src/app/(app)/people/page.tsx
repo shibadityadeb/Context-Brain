@@ -8,10 +8,11 @@ export default function PeoplePage() {
     <KnowledgeCollection
       types={['PERSON', 'TEAM']}
       title="People"
-      description="Everyone your company knows — teammates, customers and contacts."
+      description="Your team — the people on your company domain."
       icon={Users}
-      emptyTitle="No people yet"
-      emptyDescription="As documents and messages are understood, the people mentioned in them appear here automatically."
+      internalOnly
+      emptyTitle="No team members yet"
+      emptyDescription="People on your company domain appear here as they show up in synced mail, calendar and documents."
     />
   );
 }

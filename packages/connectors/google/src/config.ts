@@ -29,12 +29,17 @@ export const GOOGLE_SCOPES = [
   // only, no read of the whole mailbox beyond the readonly scope above).
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/gmail.send',
+  // drive.file: create/manage only the files the Brain itself creates — the
+  // Action Layer can save generated documents to the user's Drive without
+  // access to their existing files.
+  'https://www.googleapis.com/auth/drive.file',
 ] as const;
 
 /** The subset of scopes required to perform Action-Layer side effects. */
 export const GOOGLE_WRITE_SCOPES = {
   calendar: 'https://www.googleapis.com/auth/calendar.events',
   gmailSend: 'https://www.googleapis.com/auth/gmail.send',
+  driveFile: 'https://www.googleapis.com/auth/drive.file',
 } as const;
 
 /**

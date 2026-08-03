@@ -30,6 +30,7 @@ export function KnowledgeCollection({
   icon,
   emptyTitle,
   emptyDescription,
+  internalOnly = false,
 }: {
   types: string[];
   title: string;
@@ -37,6 +38,8 @@ export function KnowledgeCollection({
   icon: LucideIcon;
   emptyTitle: string;
   emptyDescription: string;
+  /** Restrict PERSON/TEAM to the org's own people (excludes customers/partners). */
+  internalOnly?: boolean;
 }) {
   const [items, setItems] = useState<KnowledgeObjectSummary[] | null>(null);
   const [search, setSearch] = useState('');
@@ -50,7 +53,7 @@ export function KnowledgeCollection({
       void Promise.all(
         types.map((type) =>
           knowledgeGraphApi
-            .listObjects({ type, pageSize: 60 })
+            .listObjects({ type, pageSize: 60, audience: internalOnly ? 'internal' : undefined })
             .then((d) => d.objects)
             .catch(() => []),
         ),
@@ -63,7 +66,7 @@ export function KnowledgeCollection({
         cancelled = true;
       };
     },
-    [typesKey, types],
+    [typesKey, types, internalOnly],
   );
 
   useEffect(() => load(true), [load]);

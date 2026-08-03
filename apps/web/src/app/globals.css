@@ -130,6 +130,25 @@
     background: hsl(var(--muted-foreground) / 0.4);
     background-clip: content-box;
   }
+  /* Lenis smooth-scroll companion styles (see providers/smooth-scroll.tsx).
+     Required so the window stays the scroll container and the wheel isn't
+     "eaten"; panes that scroll natively opt out with [data-lenis-prevent]. */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+  .lenis.lenis-smooth iframe {
+    pointer-events: none;
+  }
 }
 
 @layer components {

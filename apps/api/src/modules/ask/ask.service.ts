@@ -77,7 +77,10 @@ export class AskService {
   // ── Legacy stateless ask (team scope) — kept for backward compatibility ──────
 
   async ask(organizationId: string, body: AskBody) {
-    const items = await this.retrieval.retrieve(organizationId, body.question, { scope: 'team' });
+    const items = await this.retrieval.retrieve(organizationId, body.question, {
+      scope: 'team',
+      limit: 30,
+    });
     const answer = await this.generate('team', body.question, body.history ?? [], items);
     return { answer, sources: toSources(items) };
   }
@@ -97,7 +100,8 @@ export class AskService {
 
     const scope = toRetrievalScope(conversation.scope);
     const [items, history] = await Promise.all([
-      this.retrieval.retrieve(organizationId, question, { scope, userId }),
+      // Draw broadly across the Company Brain so answers are comprehensive.
+      this.retrieval.retrieve(organizationId, question, { scope, userId, limit: 30 }),
       this.conversations.recentHistory(conversationId, HISTORY_TURNS),
     ]);
 

@@ -43,6 +43,30 @@ const MERGE_SCAN_LIMIT = 500;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * The calendar account an event was synced from. Google calendar event ids are
+ * stored as `<account-email>:<eventId>`, so the prefix (when it's an email) is
+ * the connected member whose calendar surfaced this Meet.
+ */
+function accountOf(calendarEventId: string): string | null {
+  const idx = calendarEventId.indexOf(':');
+  if (idx <= 0) return null;
+  const prefix = calendarEventId.slice(0, idx);
+  return prefix.includes('@') ? prefix : null;
+}
+
+/**
+ * Canonical key that collapses the SAME real Meet detected from multiple
+ * members' calendars into one card. The Meet URL is shared across every
+ * account's copy, so it's the strongest key; fall back to the account-stripped
+ * event id, then the raw id (so unrelated meetings never merge).
+ */
+function canonicalKey(ev: UpcomingCalendarMeeting): string {
+  if (ev.meetingUrl && ev.meetingUrl.trim()) return `url:${ev.meetingUrl.trim().toLowerCase()}`;
+  const idx = ev.calendarEventId.indexOf(':');
+  return `evt:${idx >= 0 ? ev.calendarEventId.slice(idx + 1) : ev.calendarEventId}`;
+}
+
 /** Capture-side reads for one meeting, used to derive the lifecycle. */
 interface CaptureContext {
   provider: string;
@@ -97,10 +121,28 @@ export class MeetingsService {
     const involved = [...captureByCalId.values(), ...providerOnly];
     const contexts = await this.loadCaptureContexts(involved);
 
+    // Collapse account-duplicated calendar meetings — the same Meet synced from
+    // several members' calendars — into one canonical card that lists every
+    // contributing account. A capture attached to any copy carries the group.
+    const groups = new Map<string, UpcomingCalendarMeeting[]>();
+    for (const ev of calById.values()) {
+      const k = canonicalKey(ev);
+      const g = groups.get(k);
+      if (g) g.push(ev);
+      else groups.set(k, [ev]);
+    }
+
     const meetings: Meeting[] = [];
-    for (const [calId, ev] of calById) {
-      const capture = captureByCalId.get(calId) ?? null;
-      meetings.push(this.toCanonicalFromCalendar(ev, capture, contexts));
+    for (const groupEvents of groups.values()) {
+      const rep = groupEvents.find((e) => captureByCalId.has(e.calendarEventId)) ?? groupEvents[0];
+      if (!rep) continue;
+      const capture = captureByCalId.get(rep.calendarEventId) ?? null;
+      const accounts = [
+        ...new Set(
+          groupEvents.map((e) => accountOf(e.calendarEventId)).filter((a): a is string => !!a),
+        ),
+      ];
+      meetings.push(this.toCanonicalFromCalendar(rep, capture, contexts, accounts));
     }
     for (const row of providerOnly) {
       meetings.push(this.toCanonicalFromProvider(row, contexts));
@@ -271,10 +313,15 @@ export class MeetingsService {
     ev: UpcomingCalendarMeeting,
     capture: StoredMeeting | null,
     contexts: Map<string, CaptureContext>,
+    accounts: string[] = [],
   ): Meeting {
     const status = this.lifecycleFor(capture, ev.startsAt, ev.endsAt, contexts);
     const startsAt =
       ev.startsAt ?? (capture?.scheduledStart ? new Date(capture.scheduledStart) : null);
+    // Fall back to this event's own account when the caller didn't group.
+    const resolvedAccounts = accounts.length
+      ? accounts
+      : [accountOf(ev.calendarEventId)].filter((a): a is string => !!a);
     return {
       id: ev.calendarEventId,
       source: 'calendar',
@@ -284,6 +331,7 @@ export class MeetingsService {
       startsAt: startsAt ? startsAt.toISOString() : null,
       endsAt: ev.endsAt ? ev.endsAt.toISOString() : null,
       status,
+      accounts: resolvedAccounts,
       captured: capture !== null,
       botJoined: this.botJoined(capture),
       hint: capture === null && status === 'upcoming' ? CAPTURE_PENDING_HINT : null,
@@ -311,6 +359,9 @@ export class MeetingsService {
       startsAt: row.scheduledStart,
       endsAt: row.endedAt,
       status,
+      accounts: row.externalMeetingId
+        ? [accountOf(row.externalMeetingId)].filter((a): a is string => !!a)
+        : [],
       captured: true,
       botJoined: this.botJoined(row),
       hint: null,

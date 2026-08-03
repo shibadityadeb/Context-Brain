@@ -2,7 +2,15 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, CalendarClock, FileText, Link as LinkIcon, Radio, Sparkles } from 'lucide-react';
+import {
+  Bot,
+  CalendarClock,
+  FileText,
+  Link as LinkIcon,
+  Radio,
+  Sparkles,
+  Users,
+} from 'lucide-react';
 import { Badge, EmptyState, PageHeader, SkeletonCard } from '@/components/ui/primitives';
 import { meetingsApi, type Meeting, type MeetingLifecycle } from '@/lib/api';
 
@@ -60,6 +68,12 @@ function statusTone(status: MeetingLifecycle): 'neutral' | 'ai' | 'success' | 'd
   return 'neutral';
 }
 
+/** Friendly display name for a synced calendar account (email local-part). */
+function accountName(email: string): string {
+  const local = email.split('@')[0] ?? email;
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
 function MeetingCard({ meeting }: { meeting: Meeting }) {
   const live = LIVE_STATUSES.has(meeting.status);
   const when = meeting.startsAt ?? meeting.createdAt;
@@ -79,6 +93,12 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
         {new Date(when).toLocaleString()}
         {meeting.platform ? ` · ${meeting.platform.replace('_', ' ')}` : ''}
       </p>
+      {meeting.accounts.length > 0 && (
+        <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Users className="h-3 w-3" />
+          From {meeting.accounts.map(accountName).join(', ')}
+        </p>
+      )}
       {PAST_STATUSES.has(meeting.status) && (
         <p className="mt-2 inline-flex items-center gap-1.5 text-xs">
           <span
