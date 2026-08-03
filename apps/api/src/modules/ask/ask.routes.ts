@@ -3,7 +3,9 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { ok } from '../../utils/response.js';
 import { AskService } from './ask.service.js';
+import { ReplayService } from './replay.service.js';
 import { askBodySchema } from './ask.schemas.js';
+import { replayBodySchema } from './replay.schemas.js';
 import {
   conversationIdParamsSchema,
   createConversationSchema,
@@ -20,6 +22,12 @@ import {
 export default async function askRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const service = new AskService({ prisma: app.prisma });
+  const replay = new ReplayService({
+    prisma: app.prisma,
+    vector: app.vector,
+    embeddings: app.embeddings,
+    temporal: app.temporal,
+  });
 
   // ── Legacy stateless ask (team scope) — kept for back-compat ────────────────
   app.post(
@@ -36,6 +44,24 @@ export default async function askRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const organizationId = await service.resolveOrganization(request.user!.id);
       return reply.send(ok(await service.ask(organizationId, request.body)));
+    },
+  );
+
+  // ── Replay: causal reconstruction of an entity's history ────────────────────
+  app.post(
+    '/replay',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['ask'],
+        summary: "Replay an entity's history — causal timeline + grounded narrative",
+        security: [{ bearerAuth: [] }],
+        body: replayBodySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await replay.resolveOrganization(request.user!.id);
+      return reply.send(ok(await replay.replay(organizationId, request.body)));
     },
   );
 

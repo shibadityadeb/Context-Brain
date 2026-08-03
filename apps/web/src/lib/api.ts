@@ -1107,6 +1107,85 @@ export const askApi = {
   },
 };
 
+// ── Replay Mode — causal reconstruction of an entity's history ─────
+
+export type ReplayEventKind =
+  | 'meeting'
+  | 'decision'
+  | 'task'
+  | 'document'
+  | 'pr'
+  | 'issue'
+  | 'deployment'
+  | 'incident'
+  | 'reminder'
+  | 'customer_feedback'
+  | 'memory_update'
+  | 'knowledge_conflict'
+  | 'action'
+  | 'milestone'
+  | 'event';
+
+export interface ReplayEvent {
+  id: string;
+  timestamp: string;
+  kind: ReplayEventKind;
+  title: string;
+  summary: string | null;
+  participants: string[];
+  source: { type: string; id: string };
+  confidence: number;
+  linkedEntities: { id: string; title: string; type: string }[];
+}
+
+export interface ReplayNode {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  confidence: number;
+}
+
+export interface ReplayResult {
+  entity: { id: string; type: string; title: string; status: string; summary: string | null };
+  currentStatus: string;
+  summary: {
+    executive: string;
+    turningPoints: { title: string; detail: string; evidence: number[] }[];
+    outcome: string;
+    openQuestions: string[];
+  };
+  rootCause: { text: string; entity: { id: string; title: string; type: string } | null };
+  answered: boolean;
+  timeline: ReplayEvent[];
+  evidence: {
+    total: number;
+    meetings: number;
+    decisions: number;
+    tasks: number;
+    incidents: number;
+    documents: number;
+    codeChanges: number;
+  };
+  relatedEntities: ReplayNode[];
+  confidence: number;
+  graph: {
+    nodes: ReplayNode[];
+    edges: { id: string; from: string; to: string; type: string; confidence: number }[];
+  };
+}
+
+export const replayApi = {
+  replay(body: {
+    query: string;
+    entityId?: string;
+    depth?: number;
+    maxEvents?: number;
+  }): Promise<ReplayResult> {
+    return request('/api/v1/ask/replay', { method: 'POST', body: JSON.stringify(body) });
+  },
+};
+
 // ── Ask Brain — collaborative conversations (Personal + Team) ──────
 
 export type ConversationScope = 'personal' | 'team';

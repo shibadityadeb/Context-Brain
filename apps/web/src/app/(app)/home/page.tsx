@@ -4,13 +4,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { ArrowUpRight, Boxes, Cable, FileText, History, Sparkles, Upload } from 'lucide-react';
+import { ArrowUpRight, Boxes, Cable, History, Sparkles, Upload } from 'lucide-react';
 import {
-  api,
   knowledgeGraphApi,
   memoryApi,
   type ChangesResponse,
-  type KnowledgeDocument,
   type KnowledgeObjectSummary,
   type MemoryStats,
 } from '@/lib/api';
@@ -52,7 +50,6 @@ export default function HomePage() {
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [recent, setRecent] = useState<KnowledgeObjectSummary[] | null>(null);
   const [changes, setChanges] = useState<ChangesResponse | null>(null);
-  const [docs, setDocs] = useState<KnowledgeDocument[] | null>(null);
 
   useEffect(() => {
     memoryApi
@@ -67,10 +64,6 @@ export default function HomePage() {
       .getChanges({ since: new Date(Date.now() - 7 * 864e5).toISOString(), limit: 6 })
       .then(setChanges)
       .catch(() => setChanges(null));
-    api
-      .listDocuments({ limit: 5 })
-      .then((d) => setDocs(d.items))
-      .catch(() => setDocs([]));
   }, []);
 
   function ask(e: React.FormEvent) {
@@ -154,7 +147,7 @@ export default function HomePage() {
         />
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {/* Recently learned */}
         <section>
           <div className="mb-4 flex items-center justify-between">
@@ -164,8 +157,8 @@ export default function HomePage() {
             </Link>
           </div>
           {!recent ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {Array.from({ length: 4 }).map((_, i) => (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
                 <SkeletonCard key={i} />
               ))}
             </div>
@@ -178,7 +171,7 @@ export default function HomePage() {
               variants={staggerContainer}
               initial="hidden"
               animate="show"
-              className="grid gap-3 sm:grid-cols-2"
+              className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
             >
               {recent.map((e) => (
                 <EntityCard key={e.id} entity={e} />
@@ -210,26 +203,6 @@ export default function HomePage() {
                 ))
               ) : (
                 <p className="px-2 text-sm text-muted-foreground">No recent changes.</p>
-              )}
-            </div>
-          </section>
-
-          <section>
-            <h2 className="mb-4 text-lg font-semibold tracking-tight">Latest documents</h2>
-            <div className="space-y-1">
-              {docs?.length ? (
-                docs.map((d) => (
-                  <Link
-                    key={d.id}
-                    href={`/knowledge/documents/${d.id}`}
-                    className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-accent"
-                  >
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-sm">{d.title}</span>
-                  </Link>
-                ))
-              ) : (
-                <p className="px-2 text-sm text-muted-foreground">No documents yet.</p>
               )}
             </div>
           </section>
