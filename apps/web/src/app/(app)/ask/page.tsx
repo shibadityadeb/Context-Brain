@@ -12,6 +12,7 @@ import {
 import { useLiveRefresh } from '@/lib/use-live';
 import { ConversationSidebar } from './_components/conversation-sidebar';
 import { ChatPanel } from './_components/chat-panel';
+import { ReplayPanel } from './_components/replay-panel';
 
 function tempMessage(role: string, content: string): ConversationMessage {
   return {
@@ -34,6 +35,7 @@ function AskWorkspace() {
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [sending, setSending] = useState(false);
+  const [replayQuery, setReplayQuery] = useState<string | null>(null);
   const detailReqId = useRef(0);
 
   const loadList = useCallback(async () => {
@@ -126,6 +128,15 @@ function AskWorkspace() {
     await loadList();
   }
 
+  // Replay takes over the workspace when triggered from the "/" command menu.
+  if (replayQuery !== null) {
+    return (
+      <div className="h-[calc(100vh-9rem)] min-h-0">
+        <ReplayPanel initialQuery={replayQuery} onExit={() => setReplayQuery(null)} />
+      </div>
+    );
+  }
+
   return (
     <div className="grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_1fr]">
       <aside className="hidden min-h-0 border-r pr-6 md:block">
@@ -147,6 +158,7 @@ function AskWorkspace() {
           messages={messages}
           sending={sending}
           onSend={(q) => void send(q)}
+          onReplay={(q) => setReplayQuery(q)}
         />
       </main>
     </div>
