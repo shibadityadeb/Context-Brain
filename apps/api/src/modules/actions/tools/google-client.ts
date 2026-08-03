@@ -129,12 +129,56 @@ export class GoogleActionClient {
   }
 
   /**
+   * Create a native Google Doc in the user's Drive from Markdown/text content.
+   * Uses a multipart upload with target mimeType `application/vnd.google-apps.document`
+   * so Drive converts the body into an editable Doc.
+   */
+  async createDriveDocument(input: {
+    title: string;
+    content: string;
+  }): Promise<{ fileId: string; webViewLink: string | null }> {
+    const { accessToken } = await this.authorize(GOOGLE_WRITE_SCOPES.driveFile, 'drive');
+
+    const boundary = `cb_${Math.random().toString(36).slice(2)}`;
+    const metadata = { name: input.title, mimeType: 'application/vnd.google-apps.document' };
+    const body =
+      `--${boundary}\r\n` +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      'Content-Type: text/markdown; charset=UTF-8\r\n\r\n' +
+      `${input.content}\r\n` +
+      `--${boundary}--`;
+
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      },
+    );
+    const json = (await res.json().catch(() => ({}))) as {
+      id?: string;
+      webViewLink?: string;
+      error?: { message?: string };
+    };
+    if (!res.ok || !json.id) {
+      throw new GoogleWriteError(json.error?.message ?? `Drive API error ${res.status}`);
+    }
+    return { fileId: json.id, webViewLink: json.webViewLink ?? null };
+  }
+
+  /**
    * Resolve the acting user's Google credential, verify it carries the required
    * write scope, and mint a fresh access token from the stored refresh token.
    */
   private async authorize(
     requiredScope: string,
-    label: 'calendar' | 'gmail',
+    label: 'calendar' | 'gmail' | 'drive',
   ): Promise<{ accessToken: string; email: string | null; connectorId: string }> {
     const credential = await this.prisma.oAuthCredential.findFirst({
       where: {

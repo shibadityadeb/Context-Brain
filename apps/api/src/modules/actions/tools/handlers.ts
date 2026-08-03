@@ -2,10 +2,62 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, normalize, resolve } from 'node:path';
 import type { Prisma } from '@prisma/client';
-import { createWebSearchProvider } from '@company-brain/retrieval';
+import { createWebSearchProvider, ScopedRetrievalService } from '@company-brain/retrieval';
 import { config } from '../../../config/index.js';
 import { GoogleWriteError } from './google-client.js';
 import { fail, ok, type ToolContext, type ToolHandler, type ToolResult } from './types.js';
+
+// ── company-context grounding ─────────────────────────────────────────────────
+
+/**
+ * Pull the most relevant organizational knowledge for a brief so deliverables
+ * (documents, emails) are grounded in the real Company Brain — specific
+ * projects, decisions, meetings and facts — instead of generic AI boilerplate.
+ * Runs org-wide (team scope) across every knowledge source; failures degrade to
+ * an empty context rather than blocking the action.
+ */
+async function gatherCompanyContext(ctx: ToolContext, brief: string, limit = 30): Promise<string> {
+  try {
+    const retrieval = new ScopedRetrievalService(ctx.prisma);
+    const items = await retrieval.retrieve(ctx.organizationId, brief, { scope: 'team', limit });
+    return items
+      .map((i, n) => `${n + 1}. [${i.type}] ${i.title}${i.summary ? ` — ${i.summary}` : ''}`)
+      .join('\n');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Generate a business-grade Markdown document grounded in the Company Brain.
+ * Shared by `doc.generate` (stores in the Brain) and `drive.write` (saves to
+ * Google Drive) so both produce the same specific, non-generic deliverable.
+ */
+async function generateGroundedDocument(
+  ctx: ToolContext,
+  title: string,
+  brief: string,
+): Promise<string | null> {
+  if (!ctx.llmAvailable) return null;
+  const context = await gatherCompanyContext(ctx, `${title}\n${brief}`, 40);
+  try {
+    return await ctx.llm.complete({
+      system: [
+        'You are a senior business consultant producing a polished internal deliverable for this company.',
+        'Ground every claim in the COMPANY CONTEXT: use its specific projects, decisions, meetings, people and facts by name — never generic placeholders.',
+        'Write a thorough, business-grade Markdown document: a brief executive summary, clearly titled sections, concrete findings, specific and actionable recommendations, risks, and next steps (with owners where the context implies them).',
+        'Be detailed and decision-useful. Do NOT produce generic filler, hedging, or AI boilerplate. Where the context is silent, state the assumption explicitly instead of padding.',
+        'Output only the document (Markdown).',
+      ].join(' '),
+      prompt:
+        `Title: ${title}\n\nRequest:\n${brief}\n\n` +
+        `COMPANY CONTEXT (the organization's own knowledge — cite items by name):\n` +
+        `${context || '(no specific context matched; rely on the request and be explicit about assumptions)'}`,
+    });
+  } catch {
+    return null;
+  }
+}
 
 // ── param helpers ─────────────────────────────────────────────────────────────
 
@@ -132,15 +184,24 @@ const filesWrite: ToolHandler = async (params, ctx) => {
 
 const filesRead: ToolHandler = async (params, ctx) => {
   const path = str(params, 'path', 'file', 'filename');
-  if (!path) return fail('files.read requires a "path" parameter');
+  // A read is non-destructive, and models often add a speculative "check if it
+  // already exists" step. Degrade gracefully (skip) instead of hard-failing so
+  // one such step can't abort the whole action before the real deliverable.
+  if (!path) {
+    return ok({ skipped: true, reason: 'no path provided' }, [
+      { level: 'warn', message: 'files.read had no path; skipped (nothing to read).' },
+    ]);
+  }
   try {
     const target = safeWorkspacePath(ctx.workspaceDir, path);
     const content = await readFile(target, 'utf8');
     return ok({ path, bytes: Buffer.byteLength(content), content: content.slice(0, 20_000) }, [
       { level: 'info', message: `Read ${Buffer.byteLength(content)} bytes from ${path}` },
     ]);
-  } catch (e) {
-    return fail(`files.read failed: ${(e as Error).message}`);
+  } catch {
+    return ok({ skipped: true, path, found: false }, [
+      { level: 'warn', message: `files.read: "${path}" not found; skipped.` },
+    ]);
   }
 };
 
@@ -150,17 +211,9 @@ const docGenerate: ToolHandler = async (params, ctx) => {
   const title = str(params, 'title', 'topic', 'name') ?? ctx.goal.slice(0, 120);
   let content = str(params, 'content', 'body');
 
-  if (!content && ctx.llmAvailable) {
+  if (!content) {
     const brief = str(params, 'prompt', 'instructions', 'description') ?? ctx.request;
-    try {
-      content = await ctx.llm.complete({
-        system:
-          'You are a professional writer. Produce a well-structured Markdown document. Output only the document.',
-        prompt: `Title: ${title}\n\nWrite the document for this request:\n${brief}`,
-      });
-    } catch {
-      /* fall through to a stub below */
-    }
+    content = await generateGroundedDocument(ctx, title, brief);
   }
   content ??= `# ${title}\n\n${str(params, 'description') ?? ctx.request}\n`;
 
@@ -370,10 +423,20 @@ const emailDraft: ToolHandler = async (params, ctx) => {
   const subject = str(params, 'subject', 'title') ?? `Re: ${ctx.goal.slice(0, 80)}`;
   let body = str(params, 'body', 'content', 'message');
   if (!body && ctx.llmAvailable) {
+    const context = await gatherCompanyContext(ctx, `${subject}\n${ctx.request}`, 25);
     try {
       body = await ctx.llm.complete({
-        system: 'You write concise, professional emails. Output only the email body.',
-        prompt: `Write an email for: ${ctx.request}\nRecipients: ${to.join(', ') || 'the meeting attendees'}\nSubject: ${subject}`,
+        system: [
+          'You write detailed, persuasive, business-grade emails on behalf of the company — the calibre of a senior partner writing to a client or stakeholder.',
+          'Ground the email in the COMPANY CONTEXT: reference the specific situation, findings and proposed resolution from it, with concrete details — never generic claims.',
+          'Structure it well: a strong opening that frames the issue, the key findings/analysis, a clear proposed resolution, concrete next steps, and a confident close (add a short, persuasive P.S. when it strengthens the ask).',
+          'Professional, specific, and compelling. No generic filler or AI boilerplate. Output only the email body.',
+        ].join(' '),
+        prompt:
+          `Write the email for this request:\n${ctx.request}\n` +
+          `Recipients: ${to.join(', ') || 'the intended recipient'}\nSubject: ${subject}\n\n` +
+          `COMPANY CONTEXT (ground the email in this — reference specifics):\n` +
+          `${context || '(no specific context matched; be explicit and avoid generic claims)'}`,
       });
     } catch {
       /* leave body null */
@@ -414,6 +477,38 @@ const emailSend: ToolHandler = async (params, ctx) => {
   }
 };
 
+// ── Google Drive (real file saved to the user's Drive) ───────────────────────
+
+const driveWrite: ToolHandler = async (params, ctx) => {
+  const title = str(params, 'title', 'name', 'topic') ?? ctx.goal.slice(0, 120);
+  let content = str(params, 'content', 'body');
+  // Reuse a prior grounded/doc.generate output if this step doesn't carry content.
+  if (!content) {
+    const prior = Object.values(ctx.priorOutputs).find(
+      (o): o is { content?: string } => !!o && typeof o === 'object' && 'content' in (o as object),
+    );
+    content = prior?.content ?? null;
+  }
+  if (!content) {
+    const brief = str(params, 'prompt', 'instructions', 'description') ?? ctx.request;
+    content = await generateGroundedDocument(ctx, title, brief);
+  }
+  content ??= `# ${title}\n\n${str(params, 'description') ?? ctx.request}\n`;
+
+  try {
+    const res = await ctx.google().createDriveDocument({ title, content });
+    return ok({ driveFileId: res.fileId, webViewLink: res.webViewLink, title, content }, [
+      {
+        level: 'info',
+        message: `Saved "${title}" to Google Drive${res.webViewLink ? ` — ${res.webViewLink}` : ''}.`,
+      },
+    ]);
+  } catch (e) {
+    if (e instanceof GoogleWriteError) return fail(e.message);
+    return fail(`drive.write failed: ${(e as Error).message}`);
+  }
+};
+
 // ── Browser (no driver in this environment — recorded honestly) ───────────────
 
 const browserRecord: ToolHandler = async (params) =>
@@ -433,6 +528,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   'files.write': filesWrite,
   'files.read': filesRead,
   'doc.generate': docGenerate,
+  'drive.write': driveWrite,
   'web.search': webSearch,
   'contacts.lookup': contactsLookup,
   'calendar.read': calendarRead,

@@ -34,10 +34,12 @@ export class PlanningService {
   ): Promise<PlanningResult> {
     // Personal scope: the actor may draw on shared org knowledge AND their own
     // private data (email/calendar), which is exactly what actions operate on.
+    // Draw broadly on the Company Brain so the plan reasons over the full
+    // organizational context, not a shallow top-few.
     const items = await this.deps.retrieval.retrieve(organizationId, request, {
       scope: 'personal',
       userId,
-      limit: 8,
+      limit: 30,
     });
 
     const raw = this.llmAvailable() ? await this.callCodex(request, items, knownDetails) : null;

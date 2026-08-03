@@ -72,6 +72,12 @@ export interface Meeting {
   startsAt: string | null;
   endsAt: string | null;
   status: MeetingLifecycle;
+  /**
+   * Calendar accounts this meeting was synced from. A Meet shared between
+   * members is detected once per calendar, so this lists every contributing
+   * account (e.g. both organizer and attendees who have the connector).
+   */
+  accounts: string[];
   /** Whether a capture provider is attached yet. */
   captured: boolean;
   /** Whether the notetaker bot actually joined the call (past meetings). */

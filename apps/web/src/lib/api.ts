@@ -777,6 +777,7 @@ export const knowledgeGraphApi = {
       status?: string;
       search?: string;
       documentId?: string;
+      audience?: 'all' | 'internal';
       page?: number;
       pageSize?: number;
     } = {},
@@ -1680,6 +1681,8 @@ export interface Meeting {
   startsAt: string | null;
   endsAt: string | null;
   status: MeetingLifecycle;
+  /** Calendar accounts this meeting was synced from (emails). */
+  accounts: string[];
   captured: boolean;
   /** Whether the notetaker bot actually joined the call. */
   botJoined: boolean;

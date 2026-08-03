@@ -11,6 +11,8 @@ export const listKnowledgeQuerySchema = z.object({
   priority: knowledgeTypeSchema.optional(),
   search: z.string().max(300).optional(),
   documentId: z.string().uuid().optional(),
+  /** 'internal' restricts PERSON/TEAM results to the org's own people. */
+  audience: z.enum(['all', 'internal']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });

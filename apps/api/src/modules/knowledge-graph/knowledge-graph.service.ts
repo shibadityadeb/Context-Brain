@@ -6,6 +6,7 @@ import { knowledgeCollectionForOrganization } from '@company-brain/activities';
 import type { TemporalService } from '../../services/temporal.service.js';
 import type { VectorService } from '../../services/vector.service.js';
 import { NotFoundError } from '../../utils/errors.js';
+import { getInternalDirectory, isInternal } from './internal-directory.js';
 import { reciprocalRankFusion } from '../knowledge/fusion.js';
 import type {
   GraphQuery,
@@ -80,19 +81,28 @@ export class KnowledgeGraphService {
       }),
     ]);
 
+    // "Team members only": drop PERSON/TEAM that aren't on the company domain
+    // (customers, partners, external contacts). Applied post-query — People sets
+    // fit one page, so pagination totals stay accurate for this view.
+    let visible = objects;
+    if (query.audience === 'internal') {
+      const dir = await getInternalDirectory(this.deps.prisma, organizationId);
+      visible = objects.filter((o) => isInternal(dir, o.type, o.title));
+    }
+
     // Resolve the "project" each object belongs to (via the graph) and its
     // source document — so the UI can group entities project-wise / per source.
     const grouping = await this.resolveGrouping(
       organizationId,
-      objects.map((o) => ({ id: o.id, type: o.type, sourceDocumentId: o.sourceDocumentId })),
+      visible.map((o) => ({ id: o.id, type: o.type, sourceDocumentId: o.sourceDocumentId })),
     );
 
     return {
-      total,
+      total: query.audience === 'internal' ? visible.length : total,
       page: query.page,
       pageSize: query.pageSize,
       countsByType: Object.fromEntries(byType.map((t) => [t.type, t._count._all])),
-      objects: objects.map((object) => ({
+      objects: visible.map((object) => ({
         id: object.id,
         type: object.type,
         title: object.title,
