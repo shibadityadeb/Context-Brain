@@ -11,10 +11,10 @@ import {
   History,
   Lightbulb,
   ListChecks,
-  Sparkles,
   TrendingUp,
   Users,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { changesApi, type ChangePreset, type WhatChangedResult } from '@/lib/api';
 import { Badge, Thinking } from '@/components/ui/primitives';
 import { fadeUp, staggerContainer } from '@/lib/motion';
@@ -68,7 +68,7 @@ function Section({
   title,
   children,
 }: {
-  icon: typeof Sparkles;
+  icon: LucideIcon;
   title: string;
   children: React.ReactNode;
 }) {
