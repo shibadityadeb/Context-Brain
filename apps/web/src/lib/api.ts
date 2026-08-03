@@ -1186,6 +1186,65 @@ export const replayApi = {
   },
 };
 
+// ── What Changed Mode — material organizational change over a window ─
+
+export type ChangePreset = 'today' | 'yesterday' | 'last_3_days' | 'last_week' | 'last_month';
+
+export interface DetectedChangeView {
+  id: string;
+  category: string;
+  kind: string;
+  entityId: string | null;
+  entityType: string | null;
+  title: string;
+  detail: string | null;
+  at: string;
+  importance: number;
+}
+
+export interface WhatChangedResult {
+  range: { from: string; to: string; label: string };
+  summary: string;
+  themes: string[];
+  risks: string[];
+  wins: string[];
+  suggestedActions: string[];
+  confidence: number;
+  totalChanges: number;
+  changes: DetectedChangeView[];
+  aggregates: {
+    decisions: string[];
+    projects: { id: string | null; title: string; status: string | null; kind: string }[];
+    tasks: { created: number; completed: number; blocked: number; newBlockers: string[] };
+    meetings: { count: number; items: string[] };
+    knowledge: { updated: number; created: number; total: number };
+    people: string[];
+    risks: string[];
+  };
+  evidence: {
+    totalChanges: number;
+    meetings: number;
+    tasks: number;
+    timelineEvents: number;
+    knowledgeGraph: number;
+    actionHistory: number;
+    workspaceResources: number;
+  };
+}
+
+export const changesApi = {
+  detect(body: {
+    query?: string;
+    preset?: ChangePreset;
+    fromDate?: string;
+    toDate?: string;
+    filters?: { projectId?: string; personId?: string; entityType?: string };
+    limit?: number;
+  }): Promise<WhatChangedResult> {
+    return request('/api/v1/ask/changes', { method: 'POST', body: JSON.stringify(body) });
+  },
+};
+
 // ── Ask Brain — collaborative conversations (Personal + Team) ──────
 
 export type ConversationScope = 'personal' | 'team';
