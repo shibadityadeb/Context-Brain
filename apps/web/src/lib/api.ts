@@ -1107,6 +1107,138 @@ export const askApi = {
   },
 };
 
+// ── Talk to Person — query an employee's organizational knowledge ──
+// No avatar is stored: every profile and answer is assembled at request time
+// from existing knowledge, meetings, docs, decisions, timeline and graph.
+
+export interface PersonListItem {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string | null;
+  hasAccount: boolean;
+  confidence: number;
+  updatedAt: string;
+}
+
+export interface PersonSummary {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string | null;
+  hasAccount: boolean;
+  summary: string | null;
+}
+
+/** A cited piece of evidence (shape shared with Ask Brain sources). */
+export interface PersonSource {
+  id: string;
+  kind: string;
+  type: string;
+  title: string;
+  url: string | null;
+}
+
+export interface PersonMeetingRef {
+  id: string;
+  title: string;
+  status: string;
+  scheduledStart: string;
+  decisionCount: number;
+  taskCount: number;
+  spoke: boolean;
+}
+
+export interface PersonDocumentRef {
+  id: string;
+  kind: 'resource' | 'document';
+  title: string;
+  url: string | null;
+  updatedAt: string | null;
+  mine: boolean;
+}
+
+export interface PersonNodeRef {
+  id: string;
+  title: string;
+  status?: string;
+  priority?: string;
+  type?: string;
+  summary?: string | null;
+  confidence?: number;
+  relations: string[];
+  outbound?: boolean;
+}
+
+export interface PersonTimelineEvent {
+  id: string;
+  type: string;
+  title: string | null;
+  occurredAt: string;
+  actor: string | null;
+}
+
+export interface PersonProfile {
+  person: PersonSummary;
+  overview?: {
+    id: string;
+    name: string;
+    email: string | null;
+    role: string | null;
+    hasAccount: boolean;
+    summary: string | null;
+    description: string | null;
+    aliases: string[];
+    counts: {
+      projects: number;
+      meetings: number;
+      documents: number;
+      decisions: number;
+      openTasks: number;
+    };
+  };
+  projects?: PersonNodeRef[];
+  meetings?: PersonMeetingRef[];
+  documents?: PersonDocumentRef[];
+  decisions?: PersonNodeRef[];
+  tasks?: PersonNodeRef[];
+  relationships?: PersonNodeRef[];
+  timeline?: PersonTimelineEvent[];
+}
+
+export interface PersonQueryResult {
+  answer: string;
+  confidence: number;
+  sources: PersonSource[];
+  meetings: PersonSource[];
+  documents: PersonSource[];
+  decisions: PersonSource[];
+  related_people: { id: string; name: string; relations: string[] }[];
+}
+
+export const peopleApi = {
+  list(search?: string): Promise<{ people: PersonListItem[] }> {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return request(`/api/v1/people${qs}`);
+  },
+  profile(id: string): Promise<PersonProfile> {
+    return request(`/api/v1/people/${id}`);
+  },
+  query(
+    id: string,
+    body: {
+      question: string;
+      history?: { role: 'user' | 'assistant'; content: string }[];
+      limit?: number;
+    },
+  ): Promise<PersonQueryResult> {
+    return request(`/api/v1/people/${id}/query`, { method: 'POST', body: JSON.stringify(body) });
+  },
+  remove(id: string): Promise<{ deleted: boolean }> {
+    return request(`/api/v1/people/${id}`, { method: 'DELETE' });
+  },
+};
+
 // ── Replay Mode — causal reconstruction of an entity's history ─────
 
 export type ReplayEventKind =
