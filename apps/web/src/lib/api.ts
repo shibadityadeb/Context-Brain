@@ -1239,6 +1239,142 @@ export const peopleApi = {
   },
 };
 
+// ── AI Launch & Governance Copilot ─────────────────────────────────
+
+export interface GovApplicableLaw {
+  lawId: string;
+  name: string;
+  shortName: string;
+  kind: string;
+  region: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  reasons: string[];
+  recommended: boolean;
+  url?: string;
+}
+
+export interface GovRequirement {
+  id: string;
+  kind: 'DOCUMENT' | 'CONTROL';
+  title: string;
+  documentType?: string;
+  status: 'SATISFIED' | 'MISSING' | 'UNKNOWN';
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  requiredBy: string[];
+}
+
+export interface GovMissingInfo {
+  field: string;
+  question: string;
+  options: string[];
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+export interface GovScores {
+  privacy: number;
+  security: number;
+  compliance: number;
+  aiGovernance: number;
+  legalReadiness: number;
+  documentation: number;
+  accessibility: number;
+  risk: number;
+  launchReadiness: number;
+  overall: number;
+}
+
+export interface GovernanceAssessment {
+  applicableLaws: GovApplicableLaw[];
+  requirements: GovRequirement[];
+  gaps: GovRequirement[];
+  missingInfo: GovMissingInfo[];
+  scores: GovScores;
+  launchBlockers: { title: string; severity: string; detail: string }[];
+  recommendedActions: string[];
+  confidence: number;
+}
+
+export interface GovernanceAnswer {
+  profileId: string;
+  answer: string;
+  assessment: GovernanceAssessment;
+  sources: { id: string; kind: string; type: string; title: string; url: string | null }[];
+}
+
+export interface GovernanceDocumentRef {
+  id: string;
+  type: string;
+  title: string;
+  status: string;
+  drivenBy?: string[] | null;
+  createdAt: string;
+}
+
+/** A generated document draft. `id` is null and `saved` false for previews. */
+export interface GovernanceDocumentDraft {
+  id: string | null;
+  type: string;
+  title: string;
+  status: string;
+  content: string;
+  drivenBy?: string[] | null;
+  createdAt: string;
+  saved: boolean;
+}
+
+export const governanceApi = {
+  /** `/governance <product>` — resolve-or-create a product profile and answer. */
+  command(body: {
+    product: string;
+    question: string;
+    countries?: string[];
+    history?: { role: 'user' | 'assistant'; content: string }[];
+  }): Promise<GovernanceAnswer> {
+    return request('/api/v1/governance/ask', { method: 'POST', body: JSON.stringify(body) });
+  },
+  ask(
+    id: string,
+    body: {
+      question: string;
+      countries?: string[];
+      history?: { role: 'user' | 'assistant'; content: string }[];
+    },
+  ): Promise<Omit<GovernanceAnswer, 'profileId'>> {
+    return request(`/api/v1/governance/profiles/${id}/ask`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  update(
+    id: string,
+    body: Record<string, unknown>,
+  ): Promise<{ id: string; assessment: GovernanceAssessment | null }> {
+    return request(`/api/v1/governance/profiles/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+  assess(id: string): Promise<GovernanceAssessment> {
+    return request(`/api/v1/governance/profiles/${id}/assess`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+  /** Draft a document. Preview-only by default (nothing saved); save=true persists to the app (never Drive). */
+  generateDocument(id: string, type: string, save = false): Promise<GovernanceDocumentDraft> {
+    return request(`/api/v1/governance/profiles/${id}/documents`, {
+      method: 'POST',
+      body: JSON.stringify({ type, save }),
+    });
+  },
+  listDocuments(id: string): Promise<{ documents: GovernanceDocumentRef[] }> {
+    return request(`/api/v1/governance/profiles/${id}/documents`);
+  },
+  getDocument(id: string, docId: string): Promise<GovernanceDocumentRef & { content: string }> {
+    return request(`/api/v1/governance/profiles/${id}/documents/${docId}`);
+  },
+};
+
 // ── Replay Mode — causal reconstruction of an entity's history ─────
 
 export type ReplayEventKind =

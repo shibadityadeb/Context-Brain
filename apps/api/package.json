@@ -23,6 +23,7 @@
     "@company-brain/connector-core": "workspace:*",
     "@company-brain/connector-google": "workspace:*",
     "@company-brain/events": "workspace:*",
+    "@company-brain/governance": "workspace:*",
     "@company-brain/graph": "workspace:*",
     "@company-brain/knowledge": "workspace:*",
     "@company-brain/knowledge-engine": "workspace:*",

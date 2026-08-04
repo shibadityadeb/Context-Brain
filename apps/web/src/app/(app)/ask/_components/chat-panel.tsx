@@ -11,6 +11,7 @@ import {
   Globe,
   History,
   Mail,
+  ShieldCheck,
   Sparkles,
   TrendingUp,
   Users,
@@ -150,6 +151,13 @@ const COMMANDS = [
     icon: TrendingUp,
     recommended: false,
   },
+  {
+    id: 'governance',
+    label: 'Governance',
+    desc: 'Launch & compliance review for a product — laws, gaps, documents',
+    icon: ShieldCheck,
+    recommended: false,
+  },
 ] as const;
 
 type CommandId = (typeof COMMANDS)[number]['id'];
@@ -161,6 +169,7 @@ export function ChatPanel({
   onSend,
   onReplay,
   onChanges,
+  onGovernance,
 }: {
   conversation: ConversationDetail | null;
   messages: ConversationMessage[];
@@ -168,6 +177,7 @@ export function ChatPanel({
   onSend: (question: string) => void;
   onReplay: (query: string) => void;
   onChanges: (query: string) => void;
+  onGovernance: (product: string) => void;
 }) {
   const [input, setInput] = useState('');
   const [armed, setArmed] = useState<CommandId | null>(null);
@@ -211,6 +221,13 @@ export function ChatPanel({
     if (armed === 'changes') {
       // Range can be derived from phrasing; an empty ask defaults to this week.
       onChanges(q);
+      setInput('');
+      setArmed(null);
+      return;
+    }
+    if (armed === 'governance') {
+      if (q.length < 2) return;
+      onGovernance(q);
       setInput('');
       setArmed(null);
       return;
@@ -377,9 +394,11 @@ export function ChatPanel({
                 ? 'What should I replay? e.g. “Why was Project Atlas delayed?”'
                 : armed === 'changes'
                   ? 'What changed? e.g. “this week”, “since July 14” (blank = this week)'
-                  : isPersonal
-                    ? 'Ask about your own knowledge…  (type / for modes)'
-                    : 'Ask about the team…  (type / for modes)'
+                  : armed === 'governance'
+                    ? 'Which product? e.g. “Product Alpha”'
+                    : isPersonal
+                      ? 'Ask about your own knowledge…  (type / for modes)'
+                      : 'Ask about the team…  (type / for modes)'
             }
             className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />

@@ -2825,3 +2825,89 @@ model ActionLog {
   @@index([actionId, createdAt])
   @@map("action_logs")
 }
+
+// ════════════════════════════════════════════════════════════════
+// AI Launch & Governance Copilot
+// A continuously-evolving Governance Profile per product. The structured
+// ProductProfile and every derived assessment (applicable laws, scores, gaps,
+// missing information) are computed by the pure @company-brain/governance
+// engine and snapshotted here as JSON — the DB stores state, the engine owns
+// the rules. Fully additive: `organizationId` + the product link
+// (`productEntityId` → a PRODUCT KnowledgeObject) are plain scalars with no FK
+// to earlier models, matching every prior phase. Soft-delete + audit
+// timestamps throughout.
+// ════════════════════════════════════════════════════════════════
+
+enum GovernanceDocumentStatus {
+  DRAFT
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+model GovernanceProfile {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String @db.Uuid
+
+  // The product this profile governs. Optional link to a PRODUCT
+  // KnowledgeObject (plain scalar, no FK); `name` is the human handle.
+  productEntityId String? @db.Uuid
+  name            String
+  normalizedName  String
+
+  // The structured ProductProfile (see @company-brain/governance).
+  profile Json
+  // Last full assessment snapshot: applicable laws, requirements, gaps,
+  // missingInfo, scores, launchBlockers, recommendedActions.
+  assessment Json?
+
+  // Denormalized headline scores so lists sort without re-assessing.
+  overallScore    Int?
+  launchReadiness Int?
+  riskScore       Int?
+  assessedAt      DateTime?
+
+  createdBy String?
+
+  documents GovernanceDocument[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([organizationId, normalizedName])
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, productEntityId])
+  @@map("governance_profiles")
+}
+
+model GovernanceDocument {
+  id String @id @default(uuid()) @db.Uuid
+
+  profileId String            @db.Uuid
+  profile   GovernanceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  organizationId String @db.Uuid
+
+  // DocumentType from the governance engine (e.g. PRIVACY_POLICY).
+  type    String
+  title   String
+  status  GovernanceDocumentStatus @default(DRAFT)
+  content String                   @db.Text
+
+  // Provenance: law short-names that drove this draft + the model used.
+  drivenBy Json?
+  model    String?
+  version  Int     @default(1)
+
+  createdBy String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, profileId])
+  @@index([profileId, type])
+  @@map("governance_documents")
+}

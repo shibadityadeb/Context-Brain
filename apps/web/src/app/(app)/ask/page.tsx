@@ -14,6 +14,7 @@ import { ConversationSidebar } from './_components/conversation-sidebar';
 import { ChatPanel } from './_components/chat-panel';
 import { ReplayPanel } from './_components/replay-panel';
 import { WhatChangedPanel } from './_components/what-changed-panel';
+import { GovernancePanel } from './_components/governance-panel';
 
 function tempMessage(role: string, content: string): ConversationMessage {
   return {
@@ -38,6 +39,7 @@ function AskWorkspace() {
   const [sending, setSending] = useState(false);
   const [replayQuery, setReplayQuery] = useState<string | null>(null);
   const [changesQuery, setChangesQuery] = useState<string | null>(null);
+  const [governanceProduct, setGovernanceProduct] = useState<string | null>(null);
   const detailReqId = useRef(0);
 
   const loadList = useCallback(async () => {
@@ -145,6 +147,13 @@ function AskWorkspace() {
       </div>
     );
   }
+  if (governanceProduct !== null) {
+    return (
+      <div className="h-[calc(100vh-9rem)] min-h-0">
+        <GovernancePanel product={governanceProduct} onExit={() => setGovernanceProduct(null)} />
+      </div>
+    );
+  }
 
   return (
     <div className="grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_1fr]">
@@ -169,6 +178,7 @@ function AskWorkspace() {
           onSend={(q) => void send(q)}
           onReplay={(q) => setReplayQuery(q)}
           onChanges={(q) => setChangesQuery(q)}
+          onGovernance={(p) => setGovernanceProduct(p)}
         />
       </main>
     </div>
