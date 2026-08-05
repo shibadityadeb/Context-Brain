@@ -218,7 +218,7 @@ function AskWorkspace() {
       </button>
     </aside>
   ) : (
-    <aside className="hidden min-h-0 border-r pr-6 md:block">
+    <aside className="hidden min-h-0 border-r pr-3 md:block">
       <ConversationSidebar
         conversations={conversations}
         activeId={activeId}
@@ -236,10 +236,10 @@ function AskWorkspace() {
 
   const homeGrid = collapsed
     ? 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[48px_minmax(0,1fr)] xl:grid-cols-[48px_minmax(0,1fr)_320px]'
-    : 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]';
+    : 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_320px]';
   const chatGrid = collapsed
     ? 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[48px_minmax(0,1fr)]'
-    : 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_minmax(0,1fr)]';
+    : 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[240px_minmax(0,1fr)]';
 
   // Home view — greeting, ask box, insights + right rail — when no chat is open.
   if (!activeId) {

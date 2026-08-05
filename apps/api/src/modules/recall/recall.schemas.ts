@@ -34,3 +34,9 @@ export const joinMeetingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
 });
 export type JoinMeetingBody = z.infer<typeof joinMeetingSchema>;
+
+/** Rename a meeting — propagates to the knowledge graph, board and references. */
+export const renameMeetingSchema = z.object({
+  title: z.string().min(1).max(200),
+});
+export type RenameMeetingBody = z.infer<typeof renameMeetingSchema>;
