@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { PanelLeftOpen, Plus } from 'lucide-react';
 import {
   conversationApi,
   type Conversation,
@@ -44,7 +45,28 @@ function AskWorkspace() {
   const [replayQuery, setReplayQuery] = useState<string | null>(null);
   const [changesQuery, setChangesQuery] = useState<string | null>(null);
   const [governanceProduct, setGovernanceProduct] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const detailReqId = useRef(0);
+
+  // Remember whether the conversation column is collapsed across navigations.
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem('ask:convCollapsed') === '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem('ask:convCollapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   const loadList = useCallback(async () => {
     try {
@@ -175,7 +197,27 @@ function AskWorkspace() {
     );
   }
 
-  const sidebar = (
+  // Collapsed: a slim rail with expand + quick-new. Expanded: the full list.
+  const leftColumn = collapsed ? (
+    <aside className="hidden min-h-0 flex-col items-center gap-2 border-r pr-2 md:flex">
+      <button
+        onClick={toggleCollapsed}
+        title="Expand conversations"
+        aria-label="Expand conversations"
+        className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <PanelLeftOpen className="h-5 w-5" />
+      </button>
+      <button
+        onClick={() => void createConversation('personal')}
+        title="New chat"
+        aria-label="New chat"
+        className="grid h-9 w-9 place-items-center rounded-lg bg-ai-gradient text-white"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </aside>
+  ) : (
     <aside className="hidden min-h-0 border-r pr-6 md:block">
       <ConversationSidebar
         conversations={conversations}
@@ -187,15 +229,23 @@ function AskWorkspace() {
         onRename={(c) => void rename(c)}
         onArchive={(c) => void archive(c)}
         onDelete={(c) => void remove(c)}
+        onCollapse={toggleCollapsed}
       />
     </aside>
   );
 
+  const homeGrid = collapsed
+    ? 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[48px_minmax(0,1fr)] xl:grid-cols-[48px_minmax(0,1fr)_320px]'
+    : 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)_320px]';
+  const chatGrid = collapsed
+    ? 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[48px_minmax(0,1fr)]'
+    : 'grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_minmax(0,1fr)]';
+
   // Home view — greeting, ask box, insights + right rail — when no chat is open.
   if (!activeId) {
     return (
-      <div className="grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_1fr] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
-        {sidebar}
+      <div className={homeGrid}>
+        {leftColumn}
         <main className="min-h-0">
           <AskHome
             userName={user?.name ?? null}
@@ -211,8 +261,8 @@ function AskWorkspace() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_1fr]">
-      {sidebar}
+    <div className={chatGrid}>
+      {leftColumn}
       <main className="min-h-0">
         <ChatPanel
           conversation={detail}
