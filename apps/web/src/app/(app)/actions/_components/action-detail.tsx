@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { cn, Button } from '@company-brain/ui';
 import {
@@ -68,12 +68,19 @@ export function ActionDetailPanel({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   // Plain-language plan revision.
   const [reviseText, setReviseText] = useState('');
+  const reviseRef = useRef<HTMLInputElement>(null);
 
   function submitRevise() {
     const t = reviseText.trim();
     if (t.length < 3 || busy) return;
     onRevise(t);
     setReviseText('');
+  }
+
+  /** "Edit plan" now sends the user to the plain-language box, not JSON. */
+  function focusRevise() {
+    reviseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    reviseRef.current?.focus();
   }
 
   const meta = ACTION_STATUS[action.status];
@@ -140,7 +147,7 @@ export function ActionDetailPanel({
             <h1 className="truncate text-xl font-semibold">{action.title}</h1>
             {pending && !editing && (
               <button
-                onClick={startEdit}
+                onClick={focusRevise}
                 aria-label="Edit plan"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
@@ -281,6 +288,7 @@ export function ActionDetailPanel({
             </p>
             <div className="flex items-center gap-2">
               <input
+                ref={reviseRef}
                 value={reviseText}
                 onChange={(e) => setReviseText(e.target.value)}
                 onKeyDown={(e) => {
@@ -301,6 +309,13 @@ export function ActionDetailPanel({
                 <Sparkles className="mr-1 h-3.5 w-3.5" /> Revise
               </Button>
             </div>
+            <button
+              onClick={startEdit}
+              disabled={busy}
+              className="mt-2 text-[11px] text-muted-foreground transition-colors hover:text-foreground hover:underline disabled:opacity-50"
+            >
+              Advanced: edit steps manually
+            </button>
           </section>
         )}
 
@@ -373,7 +388,7 @@ export function ActionDetailPanel({
             </>
           ) : (
             <>
-              <Button variant="outline" size="sm" onClick={startEdit} disabled={busy}>
+              <Button variant="outline" size="sm" onClick={focusRevise} disabled={busy}>
                 <Pencil className="mr-1 h-3.5 w-3.5" /> Edit plan
               </Button>
               <Button
