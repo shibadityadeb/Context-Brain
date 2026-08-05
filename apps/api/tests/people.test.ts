@@ -18,6 +18,7 @@ const alice: ResolvedPerson = {
   aliases: ['alice'],
   userId: 'u1',
   role: 'EMPLOYEE',
+  jobTitle: null,
   isActive: true,
 };
 

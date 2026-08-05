@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { ArrowUp, Zap } from 'lucide-react';
 import { Thinking } from '@/components/ui/primitives';
+import { useDraft } from '@/lib/use-draft';
 
 const EXAMPLES = [
   'Schedule a follow-up meeting with Rahul next week',
@@ -21,7 +21,7 @@ export function ActionComposer({
   planning: boolean;
   onSubmit: (request: string) => void;
 }) {
-  const [value, setValue] = useState('');
+  const [value, setValue] = useDraft('actions');
 
   function submit(e: React.FormEvent) {
     e.preventDefault();

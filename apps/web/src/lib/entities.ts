@@ -79,7 +79,10 @@ export function statusTone(status: string): 'neutral' | 'success' | 'warning' | 
       return 'success';
     case 'BLOCKED':
     case 'CANCELLED':
+    case 'REJECTED':
       return 'danger';
+    case 'PENDING':
+      return 'warning';
     case 'IN_PROGRESS':
     case 'OPEN':
       return 'ai';
