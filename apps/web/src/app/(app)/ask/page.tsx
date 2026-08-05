@@ -10,8 +10,11 @@ import {
   type ConversationScope,
 } from '@/lib/api';
 import { useLiveRefresh } from '@/lib/use-live';
+import { useAuth } from '@/components/auth-provider';
 import { ConversationSidebar } from './_components/conversation-sidebar';
 import { ChatPanel } from './_components/chat-panel';
+import { AskHome } from './_components/ask-home';
+import { AskRail } from './_components/ask-rail';
 import { ReplayPanel } from './_components/replay-panel';
 import { WhatChangedPanel } from './_components/what-changed-panel';
 import { GovernancePanel } from './_components/governance-panel';
@@ -30,6 +33,7 @@ function tempMessage(role: string, content: string): ConversationMessage {
 function AskWorkspace() {
   const params = useSearchParams();
   const router = useRouter();
+  const { user } = useAuth();
   const activeId = params.get('c');
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -87,6 +91,22 @@ function AskWorkspace() {
     const conversation = await conversationApi.create({ scope });
     await loadList();
     select(conversation.id);
+  }
+
+  // Ask from the home view: create a personal chat, send the question, then
+  // open the conversation (which loads the persisted Q&A).
+  async function startChatWith(question: string) {
+    setSending(true);
+    try {
+      const conversation = await conversationApi.create({ scope: 'personal' });
+      await conversationApi.sendMessage(conversation.id, question);
+      await loadList();
+      select(conversation.id);
+    } catch {
+      /* stay on home; the user can retry */
+    } finally {
+      setSending(false);
+    }
   }
 
   async function send(question: string) {
@@ -155,21 +175,44 @@ function AskWorkspace() {
     );
   }
 
+  const sidebar = (
+    <aside className="hidden min-h-0 border-r pr-6 md:block">
+      <ConversationSidebar
+        conversations={conversations}
+        activeId={activeId}
+        search={search}
+        onSearch={setSearch}
+        onNew={(scope) => void createConversation(scope)}
+        onSelect={select}
+        onRename={(c) => void rename(c)}
+        onArchive={(c) => void archive(c)}
+        onDelete={(c) => void remove(c)}
+      />
+    </aside>
+  );
+
+  // Home view — greeting, ask box, insights + right rail — when no chat is open.
+  if (!activeId) {
+    return (
+      <div className="grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_1fr] xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+        {sidebar}
+        <main className="min-h-0">
+          <AskHome
+            userName={user?.name ?? null}
+            sending={sending}
+            onAsk={(q) => void startChatWith(q)}
+          />
+        </main>
+        <aside className="hidden min-h-0 xl:block">
+          <AskRail />
+        </aside>
+      </div>
+    );
+  }
+
   return (
     <div className="grid h-[calc(100vh-9rem)] gap-6 md:grid-cols-[300px_1fr]">
-      <aside className="hidden min-h-0 border-r pr-6 md:block">
-        <ConversationSidebar
-          conversations={conversations}
-          activeId={activeId}
-          search={search}
-          onSearch={setSearch}
-          onNew={(scope) => void createConversation(scope)}
-          onSelect={select}
-          onRename={(c) => void rename(c)}
-          onArchive={(c) => void archive(c)}
-          onDelete={(c) => void remove(c)}
-        />
-      </aside>
+      {sidebar}
       <main className="min-h-0">
         <ChatPanel
           conversation={detail}
