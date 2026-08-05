@@ -22,6 +22,7 @@ import {
   Rocket,
   Send,
   ShieldAlert,
+  Sparkles,
   X,
   Zap,
   type LucideIcon,
@@ -46,6 +47,7 @@ export function ActionDetailPanel({
   onCancel,
   onDelete,
   onAnswer,
+  onRevise,
 }: {
   action: ActionDetail;
   busy: boolean;
@@ -55,6 +57,7 @@ export function ActionDetailPanel({
   onCancel: () => void;
   onDelete: () => void;
   onAnswer: (answers: Array<{ field: string; value: string }>) => void;
+  onRevise: (instruction: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -63,6 +66,15 @@ export function ActionDetailPanel({
   const [paramsText, setParamsText] = useState<string[]>([]);
   // Answers to Codex's clarifying questions, keyed by field.
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Plain-language plan revision.
+  const [reviseText, setReviseText] = useState('');
+
+  function submitRevise() {
+    const t = reviseText.trim();
+    if (t.length < 3 || busy) return;
+    onRevise(t);
+    setReviseText('');
+  }
 
   const meta = ACTION_STATUS[action.status];
   const needsInput = action.status === 'NEEDS_INPUT';
@@ -120,7 +132,7 @@ export function ActionDetailPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 border-b pb-4">
         <div className="min-w-0 flex-1">
@@ -156,7 +168,10 @@ export function ActionDetailPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4" data-lenis-prevent>
+      <div
+        className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden py-4"
+        data-lenis-prevent
+      >
         {/* Clarifying questions — Codex asks instead of assuming */}
         {needsInput && action.clarifications.length > 0 && (
           <section className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
@@ -254,6 +269,40 @@ export function ActionDetailPanel({
             </ol>
           )}
         </section>
+
+        {/* Revise with a prompt — change the plan without editing JSON */}
+        {(pending || needsInput) && !editing && (
+          <section className="rounded-xl border border-ai/30 bg-ai/[0.04] p-3.5">
+            <p className="inline-flex items-center gap-1.5 text-sm font-medium">
+              <Sparkles className="h-4 w-4 text-ai" /> Revise with a prompt
+            </p>
+            <p className="mb-2 mt-0.5 text-xs text-muted-foreground">
+              Describe the change in plain language — no editing needed. Codex rebuilds the plan.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                value={reviseText}
+                onChange={(e) => setReviseText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    submitRevise();
+                  }
+                }}
+                disabled={busy}
+                placeholder="e.g. use a friendlier tone, or send it to alex@acme.com"
+                className="min-w-0 flex-1 rounded-lg border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-ai/40 disabled:opacity-50"
+              />
+              <Button
+                size="sm"
+                onClick={submitRevise}
+                disabled={busy || reviseText.trim().length < 3}
+              >
+                <Sparkles className="mr-1 h-3.5 w-3.5" /> Revise
+              </Button>
+            </div>
+          </section>
+        )}
 
         {/* Knowledge sources */}
         {!editing && action.contextSources.length > 0 && (
@@ -417,7 +466,7 @@ function Pipeline({ action }: { action: ActionDetail }) {
   return (
     <div className="flex items-center gap-1 rounded-xl border bg-card/40 p-3">
       {stages.map((st, i) => (
-        <div key={st.title} className="flex flex-1 items-center gap-1">
+        <div key={st.title} className="flex min-w-0 flex-1 items-center gap-1">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <span
               className={cn(

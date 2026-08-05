@@ -57,7 +57,7 @@ export function ActionQueue({
   const completed = items.filter((a) => a.status === 'COMPLETED').slice(0, 4);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
       {/* Action queue */}
       <section className="flex min-h-0 flex-1 flex-col rounded-2xl border bg-card/40 p-3">
         <div className="flex items-center justify-between">

@@ -243,6 +243,76 @@ export class ActionService {
     return toActionDetail(await requireAction(this.deps.prisma, organizationId, id));
   }
 
+  /**
+   * Revise a pending plan from a plain-language instruction — no JSON editing.
+   * Codex re-plans the original request with the instruction folded in as an
+   * extra detail, then the steps are replaced. Stays PENDING_APPROVAL (or
+   * NEEDS_INPUT if Codex now needs something) so the user still approves.
+   */
+  async revise(
+    organizationId: string,
+    userId: string,
+    id: string,
+    instruction: string,
+  ): Promise<ActionDetail> {
+    const existing = await requireAction(this.deps.prisma, organizationId, id);
+    assertOwner(existing, userId);
+    if (!['PENDING_APPROVAL', 'NEEDS_INPUT'].includes(existing.status)) {
+      throw new BadRequestError('Only a plan awaiting approval can be revised');
+    }
+
+    const knownDetails = [
+      { question: 'Revision requested by the user', value: instruction.trim() },
+    ];
+    const { plan, contextSources } = await this.planning.plan(
+      organizationId,
+      userId,
+      existing.request,
+      knownDetails,
+    );
+    const stillNeedsInput = plan.clarifications.length > 0;
+
+    await this.deps.prisma.$transaction(async (tx) => {
+      await tx.actionStep.deleteMany({ where: { actionId: id } });
+      await tx.action.update({
+        where: { id },
+        data: {
+          title: plan.title,
+          type: plan.type,
+          status: stillNeedsInput ? 'NEEDS_INPUT' : 'PENDING_APPROVAL',
+          goal: plan.goal || null,
+          reasoning: plan.reasoning || null,
+          estimatedImpact: plan.estimatedImpact || null,
+          estimatedTools: plan.estimatedTools,
+          contextSources: contextSources as unknown as Prisma.InputJsonValue,
+          clarifications: plan.clarifications as unknown as Prisma.InputJsonValue,
+          steps: {
+            create: plan.steps.map((s, index) => ({
+              organizationId,
+              index,
+              title: s.title,
+              description: s.description,
+              tool: s.tool,
+              params: (s.params ?? undefined) as Prisma.InputJsonValue | undefined,
+              requiresApproval: s.requiresApproval,
+            })),
+          },
+        },
+      });
+    });
+
+    await appendLog(this.deps.prisma, {
+      actionId: id,
+      organizationId,
+      message: `Plan revised from your instruction. ${
+        stillNeedsInput ? 'Codex needs a bit more information.' : 'Awaiting approval.'
+      }`,
+      data: { instruction: instruction.trim() },
+    });
+
+    return toActionDetail(await requireAction(this.deps.prisma, organizationId, id));
+  }
+
   // ── Approval gate → execution ─────────────────────────────────────────────
 
   /**

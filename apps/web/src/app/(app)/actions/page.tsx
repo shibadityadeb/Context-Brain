@@ -114,6 +114,8 @@ function ActionsWorkspace() {
   const answer = (id: string, a: Array<{ field: string; value: string }>) =>
     mutate(() => actionApi.answer(id, a));
   const reject = (id: string, reason?: string) => mutate(() => actionApi.reject(id, reason));
+  const revise = (id: string, instruction: string) =>
+    mutate(() => actionApi.revise(id, instruction));
   const cancel = (id: string) => mutate(() => actionApi.cancel(id));
   const remove = (id: string) => mutate(() => actionApi.remove(id), true);
   const edit = (
@@ -155,7 +157,7 @@ function ActionsWorkspace() {
           onNew={newAction}
         />
 
-        <div className="h-full min-h-0 rounded-2xl border bg-card/30 p-5">
+        <div className="h-full min-h-0 min-w-0 rounded-2xl border bg-card/30 p-5">
           {detail ? (
             <ActionDetailPanel
               action={detail}
@@ -163,6 +165,7 @@ function ActionsWorkspace() {
               onApprove={() => void approve(detail.id)}
               onAnswer={(a) => void answer(detail.id, a)}
               onReject={(reason) => void reject(detail.id, reason)}
+              onRevise={(instruction) => void revise(detail.id, instruction)}
               onEdit={(draft) => void edit(detail.id, draft)}
               onCancel={() => void cancel(detail.id)}
               onDelete={() => void remove(detail.id)}

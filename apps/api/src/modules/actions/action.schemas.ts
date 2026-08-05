@@ -66,6 +66,12 @@ export const rejectActionSchema = z.object({
 });
 export type RejectActionBody = z.infer<typeof rejectActionSchema>;
 
+/** Revise a pending plan from a plain-language instruction (no JSON editing). */
+export const reviseActionSchema = z.object({
+  instruction: z.string().min(3).max(2000),
+});
+export type ReviseActionBody = z.infer<typeof reviseActionSchema>;
+
 /** Answers to the clarifying questions Codex asked (NEEDS_INPUT → re-plan). */
 export const answerActionSchema = z.object({
   answers: z
