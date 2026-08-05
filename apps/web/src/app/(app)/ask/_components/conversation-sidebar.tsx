@@ -1,7 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { Archive, ArchiveRestore, Pencil, Plus, Search, Trash2, User, Users } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  PanelLeftClose,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  User,
+  Users,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/primitives';
 import type { Conversation, ConversationScope } from '@/lib/api';
 
@@ -137,6 +147,7 @@ export function ConversationSidebar({
   onRename,
   onArchive,
   onDelete,
+  onCollapse,
 }: {
   conversations: Conversation[];
   activeId: string | null;
@@ -147,6 +158,8 @@ export function ConversationSidebar({
   onRename: (c: Conversation) => void;
   onArchive: (c: Conversation) => void;
   onDelete: (c: Conversation) => void;
+  /** Collapse the conversation column to a slim rail. */
+  onCollapse?: () => void;
 }) {
   const [showNew, setShowNew] = useState(false);
   const personal = conversations.filter((c) => c.scope === 'personal');
@@ -194,6 +207,16 @@ export function ConversationSidebar({
             className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
+        {onCollapse && (
+          <button
+            onClick={onCollapse}
+            title="Collapse conversations"
+            aria-label="Collapse conversations"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">

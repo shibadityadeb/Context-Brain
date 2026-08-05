@@ -2155,6 +2155,14 @@ export const meetingsApi = {
     return request(`/api/v1/recall/meetings/${encodeURIComponent(id)}`);
   },
 
+  /** Rename a meeting — the name propagates to the graph, board and references. */
+  rename(id: string, title: string): Promise<MeetingDetailView> {
+    return request(`/api/v1/recall/meetings/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    });
+  },
+
   transcript(id: string): Promise<RecallTranscript> {
     return request(`/api/v1/recall/meetings/${encodeURIComponent(id)}/transcript`);
   },

@@ -22,7 +22,9 @@ import {
   joinMeetingSchema,
   listRecallMeetingsQuerySchema,
   recallMeetingIdParamsSchema,
+  renameMeetingSchema,
 } from './recall.schemas.js';
+import { normalizeTitle } from '@company-brain/knowledge-engine';
 
 /** Carries the raw request body captured by the scoped content-type parser. */
 type RawBodyRequest = FastifyRequest & { rawBody?: string };
@@ -323,6 +325,62 @@ export default async function recallRoutes(fastify: FastifyInstance): Promise<vo
         meetingsService.get(organizationId, request.params.id),
       );
       return reply.send(ok(detail));
+    },
+  );
+
+  // Rename a meeting — the new name follows the meeting into the knowledge graph
+  // (its MEETING node), the board, and every reference to it.
+  app.patch(
+    '/meetings/:id',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['recall'],
+        summary: 'Rename a meeting (propagates to the knowledge graph, board and references)',
+        security: [{ bearerAuth: [] }],
+        params: recallMeetingIdParamsSchema,
+        body: renameMeetingSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await resolveOrg(request.user!.id);
+      const title = request.body.title.trim();
+
+      // Resolve the UI id (calendar-event id or provider id) to the capture row.
+      // Knowledge is keyed by the capture's internal id (the analysis anchor).
+      const capture = await app.prisma.recallMeeting.findFirst({
+        where: {
+          organizationId,
+          deletedAt: null,
+          OR: [{ externalMeetingId: request.params.id }, { recallBotId: request.params.id }],
+        },
+        select: { id: true },
+      });
+      if (!capture) throw new NotFoundError('Meeting');
+
+      await app.prisma.$transaction([
+        app.prisma.recallMeeting.update({ where: { id: capture.id }, data: { title } }),
+        // The meeting's own node in the graph (drives the board's meeting label).
+        app.prisma.knowledgeObject.updateMany({
+          where: {
+            organizationId,
+            type: 'MEETING',
+            sourceMeetingId: capture.id,
+            deletedAt: null,
+          },
+          data: { title, normalizedTitle: normalizeTitle(title) },
+        }),
+        // Evidence references that carry the meeting's name.
+        app.prisma.knowledgeReference.updateMany({
+          where: { organizationId, kind: 'meeting', meetingId: capture.id },
+          data: { label: title },
+        }),
+      ]);
+
+      const detail = await notFoundGuard(() =>
+        meetingsService.get(organizationId, request.params.id),
+      );
+      return reply.send(ok(detail, 'Meeting renamed'));
     },
   );
 

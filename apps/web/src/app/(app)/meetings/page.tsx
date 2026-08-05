@@ -7,6 +7,7 @@ import {
   CalendarClock,
   FileText,
   Link as LinkIcon,
+  Pencil,
   Radio,
   Sparkles,
   Users,
@@ -74,17 +75,29 @@ function accountName(email: string): string {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-function MeetingCard({ meeting }: { meeting: Meeting }) {
+function MeetingCard({ meeting, onRename }: { meeting: Meeting; onRename: (m: Meeting) => void }) {
   const live = LIVE_STATUSES.has(meeting.status);
   const when = meeting.startsAt ?? meeting.createdAt;
   return (
     <Link
       href={`/meetings/${encodeURIComponent(meeting.id)}`}
-      className="block rounded-xl border p-5 transition-colors hover:bg-accent"
+      className="group block rounded-xl border p-5 transition-colors hover:bg-accent"
     >
       <div className="flex items-center gap-2">
         {live && <Radio className="h-4 w-4 animate-pulse text-ai" />}
         <span className="font-medium">{meeting.title ?? 'Meeting'}</span>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onRename(meeting);
+          }}
+          aria-label="Rename meeting"
+          title="Rename meeting"
+          className="rounded p-1 text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground group-hover:opacity-100"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
         <Badge tone={statusTone(meeting.status)} className="ml-auto uppercase">
           {STATUS_LABELS[meeting.status]}
         </Badge>
@@ -128,6 +141,24 @@ export default function MeetingsPage() {
       .then(setMeetings)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load meetings'));
   }, []);
+
+  const renameMeeting = useCallback(
+    async (m: Meeting) => {
+      const next = window.prompt('Rename meeting', m.title ?? 'Meeting');
+      const title = next?.trim();
+      if (!title || title === (m.title ?? '')) return;
+      // Optimistic: reflect the new name immediately, then persist + refresh.
+      setMeetings((prev) => prev?.map((x) => (x.id === m.id ? { ...x, title } : x)) ?? prev);
+      try {
+        await meetingsApi.rename(m.id, title);
+        load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not rename the meeting');
+        load();
+      }
+    },
+    [load],
+  );
 
   async function sendBot(e: React.FormEvent) {
     e.preventDefault();
@@ -228,7 +259,7 @@ export default function MeetingsPage() {
       {meetings && visible.length > 0 && (
         <div className="grid gap-3 md:grid-cols-2">
           {visible.map((m) => (
-            <MeetingCard key={m.id} meeting={m} />
+            <MeetingCard key={m.id} meeting={m} onRename={renameMeeting} />
           ))}
         </div>
       )}
