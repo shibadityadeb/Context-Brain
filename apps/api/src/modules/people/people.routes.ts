@@ -11,6 +11,7 @@ import {
   personIdParamsSchema,
   personQueryBodySchema,
   personSourcesBodySchema,
+  updatePersonBodySchema,
 } from './people.schemas.js';
 
 /**
@@ -70,6 +71,27 @@ export default async function peopleRoutes(fastify: FastifyInstance): Promise<vo
         limit: 20,
       });
       return reply.send(ok({ person: publicPerson(person), ...profile }));
+    },
+  );
+
+  // ── PATCH /people/:id — set the person's role / job title ────────────────────
+  app.patch(
+    '/:id',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['people'],
+        summary: "Set a person's role / job title (stored on the PERSON entity)",
+        security: [{ bearerAuth: [] }],
+        params: personIdParamsSchema,
+        body: updatePersonBodySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await people.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(await people.setJobTitle(organizationId, request.params.id, request.body.jobTitle)),
+      );
     },
   );
 
@@ -168,6 +190,7 @@ function publicPerson(person: {
   name: string;
   email: string | null;
   role: string | null;
+  jobTitle: string | null;
   userId: string | null;
   summary: string | null;
 }) {
@@ -176,6 +199,7 @@ function publicPerson(person: {
     name: person.name,
     email: person.email,
     role: person.role,
+    jobTitle: person.jobTitle,
     hasAccount: person.userId !== null,
     summary: person.summary,
   };

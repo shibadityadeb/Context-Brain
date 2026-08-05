@@ -19,7 +19,7 @@ import {
   type CreateCardInput,
   type PatchCardInput,
 } from '@/lib/api';
-import { entityColor, entityIcon, entityLabel } from '@/lib/entities';
+import { entityColor, entityIcon, entityLabel, humanStatus, statusTone } from '@/lib/entities';
 import { useLiveRefresh } from '@/lib/use-live';
 import { KNOWLEDGE_LIVE_EVENTS } from '@/components/collections/knowledge-collection';
 import { PageHeader, SkeletonCard } from '@/components/ui/primitives';
@@ -37,6 +37,15 @@ const GROUP_MODES: Array<{ key: GroupMode; label: string }> = [
 ];
 const PRIORITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'];
 const OTHER_ID = '__other__';
+
+/** Status tone → dot colour for the card pill. */
+const STATUS_DOT: Record<ReturnType<typeof statusTone>, string> = {
+  success: 'bg-emerald-500',
+  danger: 'bg-rose-500',
+  warning: 'bg-amber-500',
+  ai: 'bg-sky-500',
+  neutral: 'bg-muted-foreground/40',
+};
 
 interface Lane {
   id: string;
@@ -321,7 +330,13 @@ export function BoardClient() {
         </DndContext>
       )}
 
-      {openCard && <CardModal card={openCard} onClose={() => setOpenCard(null)} />}
+      {openCard && (
+        <CardModal
+          card={openCard}
+          onClose={() => setOpenCard(null)}
+          onUpdated={() => load(false)}
+        />
+      )}
     </div>
   );
 }
@@ -514,6 +529,12 @@ function BoardCardTile({
         )}
       </div>
       <p className="mt-1.5 line-clamp-3 text-sm leading-snug">{card.title}</p>
+      {humanStatus(card.status) && (
+        <span className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[statusTone(card.status)]}`} />
+          {humanStatus(card.status)}
+        </span>
+      )}
       {(card.projects[0] || card.people[0] || card.meeting) && (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {card.projects[0] && (

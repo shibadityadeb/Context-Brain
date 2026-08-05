@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
 
 /**
@@ -31,6 +31,8 @@ export interface ResolvedPerson {
   /** Linked login account, when one matches by email. */
   userId: string | null;
   role: string | null;
+  /** Customizable job title (e.g. CEO, CTO, Engineer) stored on the entity. */
+  jobTitle: string | null;
   isActive: boolean | null;
 }
 
@@ -39,6 +41,8 @@ export interface PersonListItem {
   name: string;
   email: string | null;
   role: string | null;
+  /** Customizable job title (e.g. CEO, CTO, Engineer) stored on the entity. */
+  jobTitle: string | null;
   hasAccount: boolean;
   confidence: number;
   updatedAt: Date;
@@ -86,6 +90,38 @@ export class PersonService {
       }),
     ]);
     return { deleted: true };
+  }
+
+  /**
+   * Set (or clear) a person's role / job title. Stored on the PERSON entity's
+   * metadata — no new table, consistent with how `metadata.email` is kept.
+   * Guarded to `type: PERSON` so it can never mutate an arbitrary object.
+   */
+  async setJobTitle(
+    organizationId: string,
+    personId: string,
+    jobTitle: string | null,
+  ): Promise<{ id: string; jobTitle: string | null }> {
+    const person = await this.deps.prisma.knowledgeObject.findFirst({
+      where: { id: personId, organizationId, type: 'PERSON', deletedAt: null },
+      select: { id: true, metadata: true },
+    });
+    if (!person) throw new NotFoundError('Person not found');
+
+    const meta =
+      person.metadata && typeof person.metadata === 'object' && !Array.isArray(person.metadata)
+        ? (person.metadata as Record<string, unknown>)
+        : {};
+    const trimmed = jobTitle?.trim() || null;
+    const nextMeta = { ...meta };
+    if (trimmed) nextMeta.jobTitle = trimmed;
+    else delete nextMeta.jobTitle;
+
+    await this.deps.prisma.knowledgeObject.update({
+      where: { id: personId },
+      data: { metadata: nextMeta as Prisma.InputJsonValue },
+    });
+    return { id: personId, jobTitle: trimmed };
   }
 
   /** The caller as a permission subject (their email drives resource ACL checks). */
@@ -161,6 +197,7 @@ export class PersonService {
         name: p.title,
         email,
         role,
+        jobTitle: extractJobTitle(p.metadata),
         hasAccount: role !== null,
         confidence: p.confidence,
         updatedAt: p.updatedAt,
@@ -223,9 +260,16 @@ export class PersonService {
       aliases,
       userId,
       role,
+      jobTitle: extractJobTitle(ko.metadata),
       isActive,
     };
   }
+}
+
+/** Pull the customizable job title from a PERSON entity's metadata. */
+export function extractJobTitle(metadata: unknown): string | null {
+  const value = (metadata as { jobTitle?: unknown } | null)?.jobTitle;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 /** Pull an email from a PERSON entity's metadata.email or an email-shaped alias. */

@@ -1116,6 +1116,8 @@ export interface PersonListItem {
   name: string;
   email: string | null;
   role: string | null;
+  /** Customizable job title (CEO, CTO, Engineer, …). */
+  jobTitle: string | null;
   hasAccount: boolean;
   confidence: number;
   updatedAt: string;
@@ -1126,6 +1128,8 @@ export interface PersonSummary {
   name: string;
   email: string | null;
   role: string | null;
+  /** Customizable job title (CEO, CTO, Engineer, …). */
+  jobTitle: string | null;
   hasAccount: boolean;
   summary: string | null;
 }
@@ -1185,6 +1189,7 @@ export interface PersonProfile {
     name: string;
     email: string | null;
     role: string | null;
+    jobTitle?: string | null;
     hasAccount: boolean;
     summary: string | null;
     description: string | null;
@@ -1223,6 +1228,13 @@ export const peopleApi = {
   },
   profile(id: string): Promise<PersonProfile> {
     return request(`/api/v1/people/${id}`);
+  },
+  /** Set (or clear) a person's role / job title. */
+  update(
+    id: string,
+    body: { jobTitle: string | null },
+  ): Promise<{ id: string; jobTitle: string | null }> {
+    return request(`/api/v1/people/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   query(
     id: string,

@@ -21,6 +21,7 @@ import {
 import { Badge, Dot } from '@/components/ui/primitives';
 import { NeuralThinking } from '@/components/brain/neural-thinking';
 import { entityColor } from '@/lib/entities';
+import { useDraft, usePersistentToken } from '@/lib/use-draft';
 import type {
   AskSource,
   ConversationDetail,
@@ -161,6 +162,7 @@ const COMMANDS = [
 ] as const;
 
 type CommandId = (typeof COMMANDS)[number]['id'];
+const COMMAND_IDS = COMMANDS.map((c) => c.id) as readonly CommandId[];
 
 export function ChatPanel({
   conversation,
@@ -179,8 +181,13 @@ export function ChatPanel({
   onChanges: (query: string) => void;
   onGovernance: (product: string) => void;
 }) {
-  const [input, setInput] = useState('');
-  const [armed, setArmed] = useState<CommandId | null>(null);
+  // Draft survives switching sidebar tabs; keyed per conversation so drafts
+  // don't bleed between threads ('new' for the not-yet-created conversation).
+  const [input, setInput] = useDraft(`ask:${conversation?.id ?? 'new'}`);
+  const [armed, setArmed] = usePersistentToken<CommandId>(
+    `ask-cmd:${conversation?.id ?? 'new'}`,
+    COMMAND_IDS,
+  );
   const [activeCmd, setActiveCmd] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);

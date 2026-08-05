@@ -17,6 +17,13 @@ export const listPeopleQuerySchema = z.object({
 });
 export type ListPeopleQuery = z.infer<typeof listPeopleQuerySchema>;
 
+/** PATCH /people/:id — set a person's role / job title (e.g. CEO, CTO, Engineer). */
+export const updatePersonBodySchema = z.object({
+  /** Free-text job title stored on the PERSON entity. null / empty clears it. */
+  jobTitle: z.string().max(120).nullable(),
+});
+export type UpdatePersonBody = z.infer<typeof updatePersonBodySchema>;
+
 /** A single conversational turn fed back for follow-up context. Never persisted. */
 export const personTurnSchema = z.object({
   role: z.enum(['user', 'assistant']),

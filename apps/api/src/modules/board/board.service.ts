@@ -43,6 +43,8 @@ const STATUSES = [
   'RESOLVED',
   'COMPLETED',
   'CANCELLED',
+  'REJECTED',
+  'PENDING',
   'ACTIVE',
   'ARCHIVED',
   'UNKNOWN',
