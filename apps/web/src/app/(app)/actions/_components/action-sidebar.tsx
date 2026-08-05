@@ -88,7 +88,10 @@ export function ActionSidebar({ action }: { action: ActionDetail }) {
   const planSteps = action.steps;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1" data-lenis-prevent>
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto pr-1"
+      data-lenis-prevent
+    >
       {/* Activity timeline */}
       <section className="rounded-2xl border bg-card/40 p-4">
         <div className="mb-3 flex items-center justify-between">

@@ -10,6 +10,7 @@ import {
   editPlanSchema,
   listActionsQuerySchema,
   rejectActionSchema,
+  reviseActionSchema,
 } from './action.schemas.js';
 
 /**
@@ -123,6 +124,31 @@ export default async function actionRoutes(fastify: FastifyInstance): Promise<vo
         request.body.answers,
       );
       return reply.send(ok(action, 'Answers received'));
+    },
+  );
+
+  // ── Revise the plan from a plain-language instruction → re-plan ─────────────
+  app.post(
+    '/:id/revise',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['actions'],
+        summary: 'Revise a pending plan from a plain-language instruction (no JSON editing)',
+        security: [{ bearerAuth: [] }],
+        params: actionIdParamsSchema,
+        body: reviseActionSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      const action = await service.revise(
+        organizationId,
+        request.user!.id,
+        request.params.id,
+        request.body.instruction,
+      );
+      return reply.send(ok(action, 'Plan revised'));
     },
   );
 

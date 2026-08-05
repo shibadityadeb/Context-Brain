@@ -1778,6 +1778,14 @@ export const actionApi = {
     });
   },
 
+  /** Revise a pending plan from a plain-language instruction (Codex re-plans). */
+  revise(id: string, instruction: string): Promise<ActionDetail> {
+    return request(`/api/v1/actions/${id}/revise`, {
+      method: 'POST',
+      body: JSON.stringify({ instruction }),
+    });
+  },
+
   edit(
     id: string,
     body: { title?: string; goal?: string; estimatedImpact?: string; steps?: EditActionStep[] },
