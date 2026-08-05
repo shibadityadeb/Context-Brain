@@ -244,16 +244,16 @@ export class ActionService {
   }
 
   /**
-   * Revise a pending plan from a plain-language instruction — no JSON editing.
-   * Codex re-plans the original request with the instruction folded in as an
-   * extra detail, then the steps are replaced. Stays PENDING_APPROVAL (or
-   * NEEDS_INPUT if Codex now needs something) so the user still approves.
+   * Revise a pending plan by editing the prompt itself — no JSON editing. The
+   * submitted text becomes the action's request and Codex re-plans from it,
+   * replacing the steps. Stays PENDING_APPROVAL (or NEEDS_INPUT if Codex now
+   * needs something) so the user still approves before anything runs.
    */
   async revise(
     organizationId: string,
     userId: string,
     id: string,
-    instruction: string,
+    prompt: string,
   ): Promise<ActionDetail> {
     const existing = await requireAction(this.deps.prisma, organizationId, id);
     assertOwner(existing, userId);
@@ -261,15 +261,8 @@ export class ActionService {
       throw new BadRequestError('Only a plan awaiting approval can be revised');
     }
 
-    const knownDetails = [
-      { question: 'Revision requested by the user', value: instruction.trim() },
-    ];
-    const { plan, contextSources } = await this.planning.plan(
-      organizationId,
-      userId,
-      existing.request,
-      knownDetails,
-    );
+    const request = prompt.trim();
+    const { plan, contextSources } = await this.planning.plan(organizationId, userId, request);
     const stillNeedsInput = plan.clarifications.length > 0;
 
     await this.deps.prisma.$transaction(async (tx) => {
@@ -277,6 +270,7 @@ export class ActionService {
       await tx.action.update({
         where: { id },
         data: {
+          request,
           title: plan.title,
           type: plan.type,
           status: stillNeedsInput ? 'NEEDS_INPUT' : 'PENDING_APPROVAL',
@@ -304,10 +298,9 @@ export class ActionService {
     await appendLog(this.deps.prisma, {
       actionId: id,
       organizationId,
-      message: `Plan revised from your instruction. ${
+      message: `Plan rebuilt from your edited prompt. ${
         stillNeedsInput ? 'Codex needs a bit more information.' : 'Awaiting approval.'
       }`,
-      data: { instruction: instruction.trim() },
     });
 
     return toActionDetail(await requireAction(this.deps.prisma, organizationId, id));

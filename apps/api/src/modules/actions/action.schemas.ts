@@ -66,9 +66,9 @@ export const rejectActionSchema = z.object({
 });
 export type RejectActionBody = z.infer<typeof rejectActionSchema>;
 
-/** Revise a pending plan from a plain-language instruction (no JSON editing). */
+/** Revise a pending plan by editing the prompt (no JSON editing). */
 export const reviseActionSchema = z.object({
-  instruction: z.string().min(3).max(2000),
+  instruction: z.string().min(3).max(4000),
 });
 export type ReviseActionBody = z.infer<typeof reviseActionSchema>;
 

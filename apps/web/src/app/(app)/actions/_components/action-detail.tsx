@@ -66,21 +66,24 @@ export function ActionDetailPanel({
   const [paramsText, setParamsText] = useState<string[]>([]);
   // Answers to Codex's clarifying questions, keyed by field.
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  // Plain-language plan revision.
+  // Plain-language plan revision — an in-place prompt editor.
+  const [revising, setRevising] = useState(false);
   const [reviseText, setReviseText] = useState('');
-  const reviseRef = useRef<HTMLInputElement>(null);
+  const reviseRef = useRef<HTMLTextAreaElement>(null);
+
+  /** "Edit plan" opens the prompt editor, pre-filled with the current prompt. */
+  function startRevise() {
+    setEditing(false);
+    setReviseText(action.request);
+    setRevising(true);
+    requestAnimationFrame(() => reviseRef.current?.focus());
+  }
 
   function submitRevise() {
     const t = reviseText.trim();
     if (t.length < 3 || busy) return;
     onRevise(t);
-    setReviseText('');
-  }
-
-  /** "Edit plan" now sends the user to the plain-language box, not JSON. */
-  function focusRevise() {
-    reviseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    reviseRef.current?.focus();
+    setRevising(false);
   }
 
   const meta = ACTION_STATUS[action.status];
@@ -145,9 +148,9 @@ export function ActionDetailPanel({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-xl font-semibold">{action.title}</h1>
-            {pending && !editing && (
+            {pending && !editing && !revising && (
               <button
-                onClick={focusRevise}
+                onClick={startRevise}
                 aria-label="Edit plan"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
@@ -167,7 +170,7 @@ export function ActionDetailPanel({
             <meta.icon className={cn('h-3 w-3', action.status === 'RUNNING' && 'animate-spin')} />
             {meta.label}
           </Badge>
-          {cancelable && !editing && (
+          {cancelable && !editing && !revising && (
             <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
               <Ban className="mr-1 h-3.5 w-3.5" /> Cancel
             </Button>
@@ -179,136 +182,30 @@ export function ActionDetailPanel({
         className="min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden py-4"
         data-lenis-prevent
       >
-        {/* Clarifying questions — Codex asks instead of assuming */}
-        {needsInput && action.clarifications.length > 0 && (
-          <section className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
-            <p className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-warning">
-              <HelpCircle className="h-4 w-4" />A few details are needed before planning
-            </p>
-            <div className="space-y-3">
-              {action.clarifications.map((c) => (
-                <div key={c.field}>
-                  <label className="block text-sm text-foreground/90">{c.question}</label>
-                  <input
-                    value={answers[c.field] ?? ''}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [c.field]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') submitAnswers();
-                    }}
-                    placeholder={c.hint ?? 'Your answer'}
-                    className="mt-1 w-full rounded-lg border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-ai/40"
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Codex → OpenClaw pipeline (state derived from the real status) */}
-        {!editing && <Pipeline action={action} />}
-
-        {/* Request / reasoning */}
-        {!editing && (
-          <section>
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">
-              Request
-            </p>
-            <p className="text-sm text-foreground/90">{action.request}</p>
-            {action.reasoning && (
-              <p className="mt-1.5 text-xs italic text-muted-foreground">{action.reasoning}</p>
-            )}
-          </section>
-        )}
-
-        {/* Execution plan */}
-        <section>
-          <p className="mb-2 text-sm font-semibold">Execution plan</p>
-
-          {editing && draft ? (
-            <EditPlan
-              draft={draft}
-              paramsText={paramsText}
-              setDraft={setDraft}
-              setParamsText={setParamsText}
-              patchStep={patchStep}
-            />
-          ) : action.steps.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              The plan is being generated — steps will appear here.
-            </p>
-          ) : (
-            <ol className="space-y-1.5">
-              {action.steps.map((s) => {
-                const sm = STEP_STATUS[s.status];
-                return (
-                  <li
-                    key={s.id}
-                    className="flex items-center gap-3 rounded-xl border bg-card/60 px-3 py-2.5"
-                  >
-                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground">
-                      {s.index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-sm font-medium">{s.title}</span>
-                        {s.requiresApproval && (
-                          <Badge tone="warning">
-                            <ShieldAlert className="h-3 w-3" /> sensitive
-                          </Badge>
-                        )}
-                      </div>
-                      {s.description && (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {s.description}
-                        </p>
-                      )}
-                      {s.error && <p className="mt-0.5 text-xs text-destructive">{s.error}</p>}
-                    </div>
-                    <Badge tone={sm.tone}>
-                      <sm.icon
-                        className={cn('h-3 w-3', s.status === 'RUNNING' && 'animate-spin')}
-                      />
-                      {sm.label}
-                    </Badge>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-        </section>
-
-        {/* Revise with a prompt — change the plan without editing JSON */}
-        {(pending || needsInput) && !editing && (
-          <section className="rounded-xl border border-ai/30 bg-ai/[0.04] p-3.5">
+        {/* In-place prompt editor — "Edit plan" edits the prompt, not JSON */}
+        {revising && (
+          <section className="rounded-xl border border-ai/40 bg-ai/[0.05] p-3.5">
             <p className="inline-flex items-center gap-1.5 text-sm font-medium">
-              <Sparkles className="h-4 w-4 text-ai" /> Revise with a prompt
+              <Sparkles className="h-4 w-4 text-ai" /> Edit the prompt
             </p>
             <p className="mb-2 mt-0.5 text-xs text-muted-foreground">
-              Describe the change in plain language — no editing needed. Codex rebuilds the plan.
+              Change what you want in plain language — Codex rebuilds the plan for your approval.
             </p>
-            <div className="flex items-center gap-2">
-              <input
-                ref={reviseRef}
-                value={reviseText}
-                onChange={(e) => setReviseText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    submitRevise();
-                  }
-                }}
-                disabled={busy}
-                placeholder="e.g. use a friendlier tone, or send it to alex@acme.com"
-                className="min-w-0 flex-1 rounded-lg border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-ai/40 disabled:opacity-50"
-              />
-              <Button
-                size="sm"
-                onClick={submitRevise}
-                disabled={busy || reviseText.trim().length < 3}
-              >
-                <Sparkles className="mr-1 h-3.5 w-3.5" /> Revise
-              </Button>
-            </div>
+            <textarea
+              ref={reviseRef}
+              value={reviseText}
+              onChange={(e) => setReviseText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submitRevise();
+                }
+                if (e.key === 'Escape') setRevising(false);
+              }}
+              disabled={busy}
+              rows={4}
+              className="w-full resize-y rounded-lg border bg-card px-3 py-2 text-sm outline-none focus:border-ai/40 disabled:opacity-50"
+            />
             <button
               onClick={startEdit}
               disabled={busy}
@@ -319,45 +216,146 @@ export function ActionDetailPanel({
           </section>
         )}
 
-        {/* Knowledge sources */}
-        {!editing && action.contextSources.length > 0 && (
-          <section>
-            <p className="mb-2 text-sm font-semibold">
-              Knowledge sources{' '}
-              <span className="text-muted-foreground">({action.contextSources.length})</span>
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {action.contextSources.slice(0, 8).map((s) => (
-                <span
-                  key={s.id}
-                  className="inline-flex max-w-[220px] items-center gap-1.5 truncate rounded-lg border bg-card px-2.5 py-1.5 text-xs"
-                  title={s.title}
-                >
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-ai" />
-                  <span className="truncate">{s.title}</span>
-                </span>
-              ))}
-              {action.contextSources.length > 8 && (
-                <span className="inline-flex items-center rounded-lg border bg-card px-2.5 py-1.5 text-xs text-muted-foreground">
-                  +{action.contextSources.length - 8} more
-                </span>
+        {/* Everything else — dimmed while the prompt is being edited */}
+        <div className={cn('space-y-6', revising && 'pointer-events-none select-none opacity-40')}>
+          {/* Clarifying questions — Codex asks instead of assuming */}
+          {needsInput && action.clarifications.length > 0 && (
+            <section className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
+              <p className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-warning">
+                <HelpCircle className="h-4 w-4" />A few details are needed before planning
+              </p>
+              <div className="space-y-3">
+                {action.clarifications.map((c) => (
+                  <div key={c.field}>
+                    <label className="block text-sm text-foreground/90">{c.question}</label>
+                    <input
+                      value={answers[c.field] ?? ''}
+                      onChange={(e) => setAnswers((a) => ({ ...a, [c.field]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitAnswers();
+                      }}
+                      placeholder={c.hint ?? 'Your answer'}
+                      className="mt-1 w-full rounded-lg border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-ai/40"
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Codex → OpenClaw pipeline (state derived from the real status) */}
+          {!editing && <Pipeline action={action} />}
+
+          {/* Request / reasoning */}
+          {!editing && (
+            <section>
+              <p className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+                Request
+              </p>
+              <p className="text-sm text-foreground/90">{action.request}</p>
+              {action.reasoning && (
+                <p className="mt-1.5 text-xs italic text-muted-foreground">{action.reasoning}</p>
               )}
-            </div>
+            </section>
+          )}
+
+          {/* Execution plan */}
+          <section>
+            <p className="mb-2 text-sm font-semibold">Execution plan</p>
+
+            {editing && draft ? (
+              <EditPlan
+                draft={draft}
+                paramsText={paramsText}
+                setDraft={setDraft}
+                setParamsText={setParamsText}
+                patchStep={patchStep}
+              />
+            ) : action.steps.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                The plan is being generated — steps will appear here.
+              </p>
+            ) : (
+              <ol className="space-y-1.5">
+                {action.steps.map((s) => {
+                  const sm = STEP_STATUS[s.status];
+                  return (
+                    <li
+                      key={s.id}
+                      className="flex items-center gap-3 rounded-xl border bg-card/60 px-3 py-2.5"
+                    >
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground">
+                        {s.index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-sm font-medium">{s.title}</span>
+                          {s.requiresApproval && (
+                            <Badge tone="warning">
+                              <ShieldAlert className="h-3 w-3" /> sensitive
+                            </Badge>
+                          )}
+                        </div>
+                        {s.description && (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {s.description}
+                          </p>
+                        )}
+                        {s.error && <p className="mt-0.5 text-xs text-destructive">{s.error}</p>}
+                      </div>
+                      <Badge tone={sm.tone}>
+                        <sm.icon
+                          className={cn('h-3 w-3', s.status === 'RUNNING' && 'animate-spin')}
+                        />
+                        {sm.label}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
           </section>
-        )}
 
-        {/* Produced artifacts (real links to what the action created) */}
-        {action.status === 'COMPLETED' && <ProducedArtifacts steps={action.steps} />}
+          {/* Knowledge sources */}
+          {!editing && action.contextSources.length > 0 && (
+            <section>
+              <p className="mb-2 text-sm font-semibold">
+                Knowledge sources{' '}
+                <span className="text-muted-foreground">({action.contextSources.length})</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {action.contextSources.slice(0, 8).map((s) => (
+                  <span
+                    key={s.id}
+                    className="inline-flex max-w-[220px] items-center gap-1.5 truncate rounded-lg border bg-card px-2.5 py-1.5 text-xs"
+                    title={s.title}
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-ai" />
+                    <span className="truncate">{s.title}</span>
+                  </span>
+                ))}
+                {action.contextSources.length > 8 && (
+                  <span className="inline-flex items-center rounded-lg border bg-card px-2.5 py-1.5 text-xs text-muted-foreground">
+                    +{action.contextSources.length - 8} more
+                  </span>
+                )}
+              </div>
+            </section>
+          )}
 
-        {action.error && action.status === 'FAILED' && (
-          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {action.error}
-          </p>
-        )}
+          {/* Produced artifacts (real links to what the action created) */}
+          {action.status === 'COMPLETED' && <ProducedArtifacts steps={action.steps} />}
+
+          {action.error && action.status === 'FAILED' && (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {action.error}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Clarification controls */}
-      {needsInput && !editing && (
+      {needsInput && !editing && !revising && (
         <div className="flex items-center gap-2 border-t pt-3">
           <Button size="sm" onClick={submitAnswers} disabled={busy || !canSubmitAnswers}>
             <Send className="mr-1 h-3.5 w-3.5" /> Submit answers
@@ -375,7 +373,7 @@ export function ActionDetailPanel({
       )}
 
       {/* Approval / edit controls */}
-      {(pending || editing) && (
+      {(pending || editing || revising) && (
         <div className="flex items-center gap-2 border-t pt-3">
           {editing ? (
             <>
@@ -386,9 +384,22 @@ export function ActionDetailPanel({
                 Cancel edit
               </Button>
             </>
+          ) : revising ? (
+            <>
+              <Button
+                size="sm"
+                onClick={submitRevise}
+                disabled={busy || reviseText.trim().length < 3}
+              >
+                <Sparkles className="mr-1 h-3.5 w-3.5" /> Revise plan
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setRevising(false)} disabled={busy}>
+                Cancel
+              </Button>
+            </>
           ) : (
             <>
-              <Button variant="outline" size="sm" onClick={focusRevise} disabled={busy}>
+              <Button variant="outline" size="sm" onClick={startRevise} disabled={busy}>
                 <Pencil className="mr-1 h-3.5 w-3.5" /> Edit plan
               </Button>
               <Button
