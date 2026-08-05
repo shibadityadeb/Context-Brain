@@ -88,6 +88,8 @@ export interface ActionSummary {
   createdBy: string;
   creatorName: string | null;
   stepCount: number;
+  /** How many of the plan's steps have finished — real execution progress. */
+  completedSteps: number;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -124,6 +126,7 @@ export const ACTION_SUMMARY_SELECT = {
   createdBy: true,
   creator: { select: { name: true } },
   _count: { select: { steps: true } },
+  steps: { select: { status: true } },
   createdAt: true,
   updatedAt: true,
   startedAt: true,
@@ -146,6 +149,7 @@ export function toActionSummary(row: ActionSummaryRow): ActionSummary {
     createdBy: row.createdBy,
     creatorName: row.creator?.name ?? null,
     stepCount: row._count.steps,
+    completedSteps: row.steps.filter((s) => s.status === 'COMPLETED').length,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     startedAt: row.startedAt?.toISOString() ?? null,
@@ -203,6 +207,7 @@ export function toActionDetail(action: ActionWithRelations): ActionDetail {
     createdBy: action.createdBy,
     creatorName: action.creator?.name ?? null,
     stepCount: action._count?.steps ?? action.steps.length,
+    completedSteps: action.steps.filter((s) => s.status === 'COMPLETED').length,
     contextSources: (action.contextSources ?? []) as unknown as ActionContextSource[],
     clarifications: (action.clarifications ?? []) as unknown as Clarification[],
     result: action.result ?? null,

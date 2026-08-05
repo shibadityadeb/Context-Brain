@@ -1,40 +1,34 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { cn, Button } from '@company-brain/ui';
 import {
   Ban,
+  BookOpen,
   CalendarClock,
+  CheckCircle2,
   CheckSquare,
   Check,
+  ChevronRight,
   ExternalLink,
   FileText,
   HelpCircle,
-  ListChecks,
+  Loader2,
   Mail,
   Package,
   Pencil,
   Plus,
+  Rocket,
   Send,
   ShieldAlert,
-  Target,
-  Terminal,
-  Trash2,
-  Wrench,
   X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/primitives';
-import type { ActionDetail, ActionStepView, ActionLogView, EditActionStep } from '@/lib/api';
-import { ACTION_STATUS, STEP_STATUS, typeIcon, typeLabel } from './status';
-
-const LOG_COLOR: Record<ActionLogView['level'], string> = {
-  DEBUG: 'text-muted-foreground/70',
-  INFO: 'text-foreground/80',
-  WARN: 'text-warning',
-  ERROR: 'text-destructive',
-};
+import type { ActionDetail, ActionStepView, EditActionStep } from '@/lib/api';
+import { ACTION_STATUS, STEP_STATUS, timeAgo, typeLabel } from './status';
 
 interface Draft {
   title: string;
@@ -69,10 +63,8 @@ export function ActionDetailPanel({
   const [paramsText, setParamsText] = useState<string[]>([]);
   // Answers to Codex's clarifying questions, keyed by field.
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const logsRef = useRef<HTMLDivElement>(null);
 
   const meta = ACTION_STATUS[action.status];
-  const TypeIcon = typeIcon(action.type);
   const needsInput = action.status === 'NEEDS_INPUT';
   const pending = action.status === 'PENDING_APPROVAL';
   const cancelable = ['PLANNING', 'NEEDS_INPUT', 'PENDING_APPROVAL', 'APPROVED'].includes(
@@ -87,11 +79,6 @@ export function ActionDetailPanel({
     onAnswer(payload);
   }
   const canSubmitAnswers = action.clarifications.some((c) => (answers[c.field] ?? '').trim());
-
-  // Keep the log view pinned to the newest line as execution streams in.
-  useEffect(() => {
-    logsRef.current?.scrollTo({ top: logsRef.current.scrollHeight });
-  }, [action.logs.length]);
 
   function startEdit() {
     const steps = action.steps.map((s) => ({
@@ -135,47 +122,41 @@ export function ActionDetailPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
-      <div className="flex items-start gap-3 border-b pb-4">
-        <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-ai-gradient text-white">
-          <TypeIcon className="h-5 w-5" />
-        </span>
+      <div className="flex items-start justify-between gap-3 border-b pb-4">
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-lg font-semibold">{action.title}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <Badge tone={meta.tone}>
-              <meta.icon className={cn('h-3 w-3', action.status === 'RUNNING' && 'animate-spin')} />
-              {meta.label}
-            </Badge>
-            <span className="text-xs text-muted-foreground">{typeLabel(action.type)}</span>
-            <Badge tone="neutral">Manual approval</Badge>
+          <div className="flex items-center gap-2">
+            <h1 className="truncate text-xl font-semibold">{action.title}</h1>
+            {pending && !editing && (
+              <button
+                onClick={startEdit}
+                aria-label="Edit plan"
+                className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
           </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Created {timeAgo(action.createdAt)} · {typeLabel(action.type)} · {action.stepCount}{' '}
+            steps
+            {' · '}
+            {action.approvalMode === 'AUTO' ? 'Auto' : 'Manual'} approval
+          </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Badge tone={meta.tone}>
+            <meta.icon className={cn('h-3 w-3', action.status === 'RUNNING' && 'animate-spin')} />
+            {meta.label}
+          </Badge>
           {cancelable && !editing && (
             <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
               <Ban className="mr-1 h-3.5 w-3.5" /> Cancel
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-            onClick={onDelete}
-            disabled={busy}
-            aria-label="Delete action"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4" data-lenis-prevent>
-        {/* Original request */}
-        <section>
-          <p className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">Request</p>
-          <p className="text-sm text-foreground/90">{action.request}</p>
-        </section>
-
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4" data-lenis-prevent>
         {/* Clarifying questions — Codex asks instead of assuming */}
         {needsInput && action.clarifications.length > 0 && (
           <section className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
@@ -201,162 +182,38 @@ export function ActionDetailPanel({
           </section>
         )}
 
-        {/* Goal + impact */}
-        <section className="grid gap-3 sm:grid-cols-2">
-          <Field icon={Target} label="Goal">
-            {editing ? (
-              <textarea
-                value={draft?.goal ?? ''}
-                onChange={(e) => setDraft((d) => (d ? { ...d, goal: e.target.value } : d))}
-                rows={2}
-                className="w-full resize-none rounded-lg border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-ai/40"
-              />
-            ) : (
-              <p className="text-sm text-foreground/90">{action.goal || '—'}</p>
-            )}
-          </Field>
-          <Field icon={ShieldAlert} label="Estimated impact">
-            {editing ? (
-              <textarea
-                value={draft?.estimatedImpact ?? ''}
-                onChange={(e) =>
-                  setDraft((d) => (d ? { ...d, estimatedImpact: e.target.value } : d))
-                }
-                rows={2}
-                className="w-full resize-none rounded-lg border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-ai/40"
-              />
-            ) : (
-              <p className="text-sm text-foreground/90">{action.estimatedImpact || '—'}</p>
-            )}
-          </Field>
-        </section>
+        {/* Codex → OpenClaw pipeline (state derived from the real status) */}
+        {!editing && <Pipeline action={action} />}
 
-        {/* Estimated tools */}
-        {action.estimatedTools.length > 0 && !editing && (
+        {/* Request / reasoning */}
+        {!editing && (
           <section>
-            <p className="mb-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
-              Estimated tools
+            <p className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+              Request
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {action.estimatedTools.map((t) => (
-                <span
-                  key={t}
-                  className="inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-[11px] text-muted-foreground"
-                >
-                  <Wrench className="h-3 w-3 text-ai" />
-                  {t}
-                </span>
-              ))}
-            </div>
+            <p className="text-sm text-foreground/90">{action.request}</p>
+            {action.reasoning && (
+              <p className="mt-1.5 text-xs italic text-muted-foreground">{action.reasoning}</p>
+            )}
           </section>
         )}
 
-        {/* Reasoning */}
-        {action.reasoning && !editing && (
-          <p className="text-xs italic text-muted-foreground">{action.reasoning}</p>
-        )}
-
-        {/* Plan / steps */}
+        {/* Execution plan */}
         <section>
-          <div className="mb-2 flex items-center gap-1.5">
-            <ListChecks className="h-4 w-4 text-ai" />
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              Plan · {(editing ? draft?.steps.length : action.steps.length) ?? 0} steps
-            </p>
-          </div>
+          <p className="mb-2 text-sm font-semibold">Execution plan</p>
 
           {editing && draft ? (
-            <div className="space-y-2">
-              {draft.steps.map((s, i) => (
-                <div key={i} className="space-y-1.5 rounded-xl border bg-card p-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-ai/10 text-[11px] font-semibold text-ai">
-                      {i + 1}
-                    </span>
-                    <input
-                      value={s.title}
-                      onChange={(e) => patchStep(i, { title: e.target.value })}
-                      className="w-full bg-transparent text-sm font-medium outline-none"
-                      placeholder="Step title"
-                    />
-                    <button
-                      onClick={() => {
-                        setDraft((d) =>
-                          d ? { ...d, steps: d.steps.filter((_, n) => n !== i) } : d,
-                        );
-                        setParamsText((p) => p.filter((_, n) => n !== i));
-                      }}
-                      className="text-muted-foreground hover:text-destructive"
-                      aria-label="Remove step"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  <textarea
-                    value={s.description ?? ''}
-                    onChange={(e) => patchStep(i, { description: e.target.value })}
-                    rows={1}
-                    placeholder="Description"
-                    className="w-full resize-none rounded-md border bg-background px-2 py-1 text-xs outline-none focus:border-ai/40"
-                  />
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={s.tool ?? ''}
-                      onChange={(e) => patchStep(i, { tool: e.target.value })}
-                      placeholder="tool (e.g. email.send)"
-                      className="w-40 rounded-md border bg-background px-2 py-1 text-xs outline-none focus:border-ai/40"
-                    />
-                    <label className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={s.requiresApproval ?? false}
-                        onChange={(e) => patchStep(i, { requiresApproval: e.target.checked })}
-                      />
-                      sensitive
-                    </label>
-                  </div>
-                  <div>
-                    <p className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Parameters (JSON) — what this step runs with
-                    </p>
-                    <textarea
-                      value={paramsText[i] ?? '{}'}
-                      onChange={(e) =>
-                        setParamsText((p) => p.map((t, n) => (n === i ? e.target.value : t)))
-                      }
-                      rows={3}
-                      spellCheck={false}
-                      className="w-full resize-y rounded-md border bg-background px-2 py-1 font-mono text-[11px] outline-none focus:border-ai/40"
-                    />
-                  </div>
-                </div>
-              ))}
-              <button
-                onClick={() => {
-                  setDraft((d) =>
-                    d
-                      ? {
-                          ...d,
-                          steps: [
-                            ...d.steps,
-                            {
-                              title: '',
-                              description: '',
-                              tool: '',
-                              params: {},
-                              requiresApproval: false,
-                            },
-                          ],
-                        }
-                      : d,
-                  );
-                  setParamsText((p) => [...p, '{}']);
-                }}
-                className="inline-flex items-center gap-1 text-xs text-ai hover:underline"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add step
-              </button>
-            </div>
+            <EditPlan
+              draft={draft}
+              paramsText={paramsText}
+              setDraft={setDraft}
+              setParamsText={setParamsText}
+              patchStep={patchStep}
+            />
+          ) : action.steps.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              The plan is being generated — steps will appear here.
+            </p>
           ) : (
             <ol className="space-y-1.5">
               {action.steps.map((s) => {
@@ -364,9 +221,9 @@ export function ActionDetailPanel({
                 return (
                   <li
                     key={s.id}
-                    className="flex items-start gap-2.5 rounded-xl border bg-card/60 px-3 py-2"
+                    className="flex items-center gap-3 rounded-xl border bg-card/60 px-3 py-2.5"
                   >
-                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground">
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground">
                       {s.index + 1}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -379,32 +236,11 @@ export function ActionDetailPanel({
                         )}
                       </div>
                       {s.description && (
-                        <p className="mt-0.5 text-xs text-muted-foreground">{s.description}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {s.description}
+                        </p>
                       )}
                       {s.error && <p className="mt-0.5 text-xs text-destructive">{s.error}</p>}
-                      {s.params && Object.keys(s.params).length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {Object.entries(s.params)
-                            .filter(([, v]) => v !== null && v !== undefined && v !== '')
-                            .map(([k, v]) => (
-                              <span
-                                key={k}
-                                className="inline-flex max-w-[220px] items-center gap-1 truncate rounded border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                                title={`${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`}
-                              >
-                                <span className="font-medium text-foreground/70">{k}</span>
-                                <span className="truncate">
-                                  {typeof v === 'string' ? v : JSON.stringify(v)}
-                                </span>
-                              </span>
-                            ))}
-                        </div>
-                      )}
-                      {s.tool && (
-                        <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                          <Wrench className="h-3 w-3 text-ai" /> {s.tool}
-                        </span>
-                      )}
                     </div>
                     <Badge tone={sm.tone}>
                       <sm.icon
@@ -419,29 +255,29 @@ export function ActionDetailPanel({
           )}
         </section>
 
-        {/* Execution logs */}
-        {action.logs.length > 0 && (
+        {/* Knowledge sources */}
+        {!editing && action.contextSources.length > 0 && (
           <section>
-            <div className="mb-1.5 flex items-center gap-1.5">
-              <Terminal className="h-4 w-4 text-ai" />
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                Execution logs
-              </p>
-            </div>
-            <div
-              ref={logsRef}
-              data-lenis-prevent
-              className="max-h-56 overflow-y-auto rounded-xl border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed"
-            >
-              {action.logs.map((l) => (
-                <div key={l.id} className="flex gap-2">
-                  <span className="shrink-0 text-muted-foreground/50">
-                    {new Date(l.createdAt).toLocaleTimeString()}
-                  </span>
-                  <span className={cn('shrink-0 uppercase', LOG_COLOR[l.level])}>{l.level}</span>
-                  <span className="text-foreground/80">{l.message}</span>
-                </div>
+            <p className="mb-2 text-sm font-semibold">
+              Knowledge sources{' '}
+              <span className="text-muted-foreground">({action.contextSources.length})</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {action.contextSources.slice(0, 8).map((s) => (
+                <span
+                  key={s.id}
+                  className="inline-flex max-w-[220px] items-center gap-1.5 truncate rounded-lg border bg-card px-2.5 py-1.5 text-xs"
+                  title={s.title}
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-ai" />
+                  <span className="truncate">{s.title}</span>
+                </span>
               ))}
+              {action.contextSources.length > 8 && (
+                <span className="inline-flex items-center rounded-lg border bg-card px-2.5 py-1.5 text-xs text-muted-foreground">
+                  +{action.contextSources.length - 8} more
+                </span>
+              )}
             </div>
           </section>
         )}
@@ -488,11 +324,8 @@ export function ActionDetailPanel({
             </>
           ) : (
             <>
-              <Button size="sm" onClick={onApprove} disabled={busy}>
-                <Check className="mr-1 h-3.5 w-3.5" /> Approve &amp; execute
-              </Button>
               <Button variant="outline" size="sm" onClick={startEdit} disabled={busy}>
-                <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                <Pencil className="mr-1 h-3.5 w-3.5" /> Edit plan
               </Button>
               <Button
                 variant="ghost"
@@ -503,32 +336,226 @@ export function ActionDetailPanel({
               >
                 <X className="mr-1 h-3.5 w-3.5" /> Reject
               </Button>
+              <Button size="sm" className="ml-auto" onClick={onApprove} disabled={busy}>
+                <Check className="mr-1 h-3.5 w-3.5" /> Approve &amp; execute
+              </Button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Delete (terminal states) */}
+      {!pending && !editing && !needsInput && !cancelable && (
+        <div className="flex justify-end border-t pt-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={onDelete}
+            disabled={busy}
+          >
+            <X className="mr-1 h-3.5 w-3.5" /> Remove from history
+          </Button>
         </div>
       )}
     </div>
   );
 }
 
-function Field({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: typeof Target;
-  label: string;
-  children: React.ReactNode;
-}) {
+// ── Codex → OpenClaw pipeline ────────────────────────────────────────────────
+
+type StageState = 'idle' | 'active' | 'done' | 'failed';
+
+const STAGE_RING: Record<StageState, string> = {
+  idle: 'border-border text-muted-foreground/60',
+  active: 'border-ai text-ai',
+  done: 'border-success text-success',
+  failed: 'border-destructive text-destructive',
+};
+
+function Pipeline({ action }: { action: ActionDetail }) {
+  const s = action.status;
+  const kb: StageState = s === 'PLANNING' ? 'active' : 'done';
+  const codex: StageState = s === 'PLANNING' ? 'active' : 'done';
+  const openclaw: StageState =
+    s === 'COMPLETED'
+      ? 'done'
+      : s === 'FAILED'
+        ? 'failed'
+        : s === 'RUNNING' || s === 'APPROVED'
+          ? 'active'
+          : 'idle';
+
+  const stages: Array<{ icon: LucideIcon; title: string; sub: string; state: StageState }> = [
+    {
+      icon: BookOpen,
+      title: 'Knowledge Base',
+      sub: kb === 'active' ? 'Analyzing context' : `${action.contextSources.length} sources found`,
+      state: kb,
+    },
+    {
+      icon: Zap,
+      title: 'Codex',
+      sub: codex === 'active' ? 'Planning the work' : 'Execution plan ready',
+      state: codex,
+    },
+    {
+      icon: Rocket,
+      title: 'OpenClaw',
+      sub:
+        openclaw === 'done'
+          ? 'Executed'
+          : openclaw === 'failed'
+            ? 'Execution failed'
+            : openclaw === 'active'
+              ? `Executing · ${action.completedSteps}/${action.stepCount}`
+              : 'Waiting for approval',
+      state: openclaw,
+    },
+  ];
+
   return (
-    <div className="rounded-xl border bg-card/50 p-3">
-      <p className="mb-1 inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-muted-foreground">
-        <Icon className="h-3 w-3 text-ai" /> {label}
-      </p>
-      {children}
+    <div className="flex items-center gap-1 rounded-xl border bg-card/40 p-3">
+      {stages.map((st, i) => (
+        <div key={st.title} className="flex flex-1 items-center gap-1">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <span
+              className={cn(
+                'grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 bg-background',
+                STAGE_RING[st.state],
+              )}
+            >
+              {st.state === 'active' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : st.state === 'done' ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <st.icon className="h-4 w-4" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{st.title}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{st.sub}</p>
+            </div>
+          </div>
+          {i < stages.length - 1 && (
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
+
+// ── Plan editor ──────────────────────────────────────────────────────────────
+
+function EditPlan({
+  draft,
+  paramsText,
+  setDraft,
+  setParamsText,
+  patchStep,
+}: {
+  draft: Draft;
+  paramsText: string[];
+  setDraft: React.Dispatch<React.SetStateAction<Draft | null>>;
+  setParamsText: React.Dispatch<React.SetStateAction<string[]>>;
+  patchStep: (i: number, patch: Partial<EditActionStep>) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <input
+        value={draft.title}
+        onChange={(e) => setDraft((d) => (d ? { ...d, title: e.target.value } : d))}
+        placeholder="Action title"
+        className="w-full rounded-lg border bg-card px-2.5 py-1.5 text-sm font-medium outline-none focus:border-ai/40"
+      />
+      {draft.steps.map((s, i) => (
+        <div key={i} className="space-y-1.5 rounded-xl border bg-card p-2.5">
+          <div className="flex items-center gap-2">
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-ai/10 text-[11px] font-semibold text-ai">
+              {i + 1}
+            </span>
+            <input
+              value={s.title}
+              onChange={(e) => patchStep(i, { title: e.target.value })}
+              className="w-full bg-transparent text-sm font-medium outline-none"
+              placeholder="Step title"
+            />
+            <button
+              onClick={() => {
+                setDraft((d) => (d ? { ...d, steps: d.steps.filter((_, n) => n !== i) } : d));
+                setParamsText((p) => p.filter((_, n) => n !== i));
+              }}
+              className="text-muted-foreground hover:text-destructive"
+              aria-label="Remove step"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <textarea
+            value={s.description ?? ''}
+            onChange={(e) => patchStep(i, { description: e.target.value })}
+            rows={1}
+            placeholder="Description"
+            className="w-full resize-none rounded-md border bg-background px-2 py-1 text-xs outline-none focus:border-ai/40"
+          />
+          <div className="flex items-center gap-2">
+            <input
+              value={s.tool ?? ''}
+              onChange={(e) => patchStep(i, { tool: e.target.value })}
+              placeholder="tool (e.g. email.send)"
+              className="w-40 rounded-md border bg-background px-2 py-1 text-xs outline-none focus:border-ai/40"
+            />
+            <label className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={s.requiresApproval ?? false}
+                onChange={(e) => patchStep(i, { requiresApproval: e.target.checked })}
+              />
+              sensitive
+            </label>
+          </div>
+          <div>
+            <p className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Parameters (JSON) — what this step runs with
+            </p>
+            <textarea
+              value={paramsText[i] ?? '{}'}
+              onChange={(e) =>
+                setParamsText((p) => p.map((t, n) => (n === i ? e.target.value : t)))
+              }
+              rows={3}
+              spellCheck={false}
+              className="w-full resize-y rounded-md border bg-background px-2 py-1 font-mono text-[11px] outline-none focus:border-ai/40"
+            />
+          </div>
+        </div>
+      ))}
+      <button
+        onClick={() => {
+          setDraft((d) =>
+            d
+              ? {
+                  ...d,
+                  steps: [
+                    ...d.steps,
+                    { title: '', description: '', tool: '', params: {}, requiresApproval: false },
+                  ],
+                }
+              : d,
+          );
+          setParamsText((p) => [...p, '{}']);
+        }}
+        className="inline-flex items-center gap-1 text-xs text-ai hover:underline"
+      >
+        <Plus className="h-3.5 w-3.5" /> Add step
+      </button>
+    </div>
+  );
+}
+
+// ── Produced artifacts ───────────────────────────────────────────────────────
 
 interface Artifact {
   icon: LucideIcon;
@@ -541,40 +568,40 @@ interface Artifact {
 function artifactFor(output: unknown): Artifact | null {
   if (!output || typeof output !== 'object') return null;
   const o = output as Record<string, unknown>;
-  const s = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null);
+  const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null);
 
-  if (s('taskId'))
+  if (str('taskId'))
     return {
       icon: CheckSquare,
-      label: `Task: ${s('title') ?? 'created'}`,
-      href: s('url'),
+      label: `Task: ${str('title') ?? 'created'}`,
+      href: str('url'),
       external: false,
     };
-  if (s('documentId'))
+  if (str('documentId'))
     return {
       icon: FileText,
-      label: `Document: ${s('title') ?? 'generated'}`,
-      href: s('url'),
+      label: `Document: ${str('title') ?? 'generated'}`,
+      href: str('url'),
       external: false,
     };
-  if (s('eventId')) {
-    const meet = s('meetUrl');
+  if (str('eventId')) {
+    const meet = str('meetUrl');
     return {
       icon: CalendarClock,
       label: meet ? 'Calendar event · Google Meet' : 'Calendar event created',
-      href: meet ?? s('htmlLink'),
+      href: meet ?? str('htmlLink'),
       external: true,
     };
   }
-  if (s('messageId'))
+  if (str('messageId'))
     return {
       icon: Mail,
-      label: `Email sent: ${s('subject') ?? ''}`.trim(),
+      label: `Email sent: ${str('subject') ?? ''}`.trim(),
       href: null,
       external: false,
     };
-  if (s('path') && typeof o.bytes === 'number')
-    return { icon: FileText, label: `File: ${s('path')}`, href: null, external: false };
+  if (str('path') && typeof o.bytes === 'number')
+    return { icon: FileText, label: `File: ${str('path')}`, href: null, external: false };
   return null;
 }
 
@@ -586,8 +613,8 @@ function ProducedArtifacts({ steps }: { steps: ActionStepView[] }) {
 
   return (
     <section>
-      <p className="mb-1.5 inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-muted-foreground">
-        <Package className="h-3.5 w-3.5 text-ai" /> Produced
+      <p className="mb-1.5 inline-flex items-center gap-1 text-sm font-semibold">
+        <Package className="h-4 w-4 text-ai" /> Produced
       </p>
       <div className="space-y-1.5">
         {artifacts.map((a, i) => {

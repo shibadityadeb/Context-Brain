@@ -4,16 +4,11 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Zap } from 'lucide-react';
 import { EmptyState } from '@/components/ui/primitives';
-import {
-  actionApi,
-  type ActionDetail,
-  type ActionSummary,
-  type ActionView,
-  type EditActionStep,
-} from '@/lib/api';
+import { actionApi, type ActionDetail, type ActionSummary, type EditActionStep } from '@/lib/api';
 import { ActionComposer } from './_components/action-composer';
-import { ActionFeed } from './_components/action-feed';
+import { ActionQueue, type QueueTab } from './_components/action-queue';
 import { ActionDetailPanel } from './_components/action-detail';
+import { ActionSidebar } from './_components/action-sidebar';
 import { isLive } from './_components/status';
 
 function ActionsWorkspace() {
@@ -21,29 +16,31 @@ function ActionsWorkspace() {
   const router = useRouter();
   const activeId = params.get('a');
 
-  const [view, setView] = useState<ActionView>('active');
+  const [tab, setTab] = useState<QueueTab>('all');
   const [actions, setActions] = useState<ActionSummary[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [detail, setDetail] = useState<ActionDetail | null>(null);
   const [planning, setPlanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const detailReqId = useRef(0);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
+  // A single fetch of everything; the queue/running/completed buckets are
+  // derived client-side so switching tabs is instant.
   const loadList = useCallback(async () => {
     try {
-      const res = await actionApi.list({ view, limit: 100 });
+      const res = await actionApi.list({ view: 'all', limit: 100 });
       setActions(res.items);
       setCounts(res.counts);
     } catch {
       /* keep prior list */
     }
-  }, [view]);
+  }, []);
 
   useEffect(() => {
     void loadList();
   }, [loadList]);
 
-  // Load the selected action.
   const loadDetail = useCallback(async (id: string) => {
     const reqId = ++detailReqId.current;
     try {
@@ -63,7 +60,7 @@ function ActionsWorkspace() {
   }, [activeId, loadDetail]);
 
   // Poll while the selected action is planning/approved/running so step progress
-  // and execution logs stream in, and keep the feed's statuses fresh.
+  // and execution stream in, and keep the buckets fresh.
   useEffect(() => {
     if (!detail || !isLive(detail.status)) return;
     const timer = setInterval(() => {
@@ -74,6 +71,12 @@ function ActionsWorkspace() {
   }, [detail, loadDetail, loadList]);
 
   const select = useCallback((id: string) => router.replace(`/actions?a=${id}`), [router]);
+
+  const newAction = useCallback(() => {
+    router.replace('/actions');
+    setDetail(null);
+    composerRef.current?.focus();
+  }, [router]);
 
   async function createAction(request: string) {
     setPlanning(true);
@@ -128,22 +131,31 @@ function ActionsWorkspace() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[minmax(320px,380px)_1fr]">
-        <div className="flex h-[calc(100vh-13rem)] min-h-0 flex-col gap-4">
-          <ActionComposer planning={planning} onSubmit={(r) => void createAction(r)} />
-          <div className="min-h-0 flex-1 border-t pt-3">
-            <ActionFeed
-              view={view}
-              counts={counts}
-              actions={actions}
-              activeId={activeId}
-              onView={setView}
-              onSelect={select}
-            />
-          </div>
-        </div>
+      <ActionComposer
+        ref={composerRef}
+        planning={planning}
+        onSubmit={(r) => void createAction(r)}
+      />
 
-        <div className="h-[calc(100vh-13rem)] min-h-0 rounded-2xl border bg-card/30 p-5">
+      <div
+        className={
+          'grid h-[calc(100vh-17rem)] min-h-0 gap-4 ' +
+          (detail
+            ? 'xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)_minmax(280px,320px)]'
+            : 'xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)]')
+        }
+      >
+        <ActionQueue
+          items={actions}
+          counts={counts}
+          activeTab={tab}
+          activeId={activeId}
+          onTab={setTab}
+          onSelect={select}
+          onNew={newAction}
+        />
+
+        <div className="h-full min-h-0 rounded-2xl border bg-card/30 p-5">
           {detail ? (
             <ActionDetailPanel
               action={detail}
@@ -165,6 +177,8 @@ function ActionsWorkspace() {
             </div>
           )}
         </div>
+
+        {detail && <ActionSidebar action={detail} />}
       </div>
     </div>
   );

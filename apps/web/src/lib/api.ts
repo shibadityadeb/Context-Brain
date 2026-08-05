@@ -1693,6 +1693,8 @@ export interface ActionSummary {
   createdBy: string;
   creatorName: string | null;
   stepCount: number;
+  /** How many plan steps have finished — real execution progress. */
+  completedSteps: number;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
