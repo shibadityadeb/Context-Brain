@@ -56,8 +56,8 @@ export function usePersistentToken<T extends string>(
     } catch {
       setValue(null);
     }
-    // `allowed` is a stable module-level constant at every call site.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `allowed` is a stable module-level constant at every call site, so it is
+    // intentionally omitted from the dependency list.
   }, [storageKey]);
 
   const update = (next: T | null) => {
