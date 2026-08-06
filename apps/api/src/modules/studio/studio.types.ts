@@ -5,6 +5,8 @@ import type {
   PresentationIntent,
   SlideContent,
   SlideSource,
+  StoryExperience,
+  StoryReadiness,
   ThemeId,
 } from '@company-brain/studio';
 import { isLayoutId, isThemeId } from '@company-brain/studio';
@@ -60,6 +62,13 @@ export interface PresentationDetail extends PresentationSummary {
   generationError: string | null;
   slides: SlideView[];
   assets: AssetView[];
+  /** The primary artifact: art direction + scenes. Null while generating, or for
+   *  decks created before the Storytelling Engine (they still render from slides). */
+  story: StoryExperience | null;
+  /** Surfaced even on a successful run so the UI can show what Company Brain
+   *  contributed rather than only what it had to ask about. */
+  readiness: StoryReadiness | null;
+  paletteId: string | null;
 }
 
 function coerceLayout(v: string): LayoutId {
@@ -107,6 +116,9 @@ export function toDetail(
     intent: (p.intent as PresentationIntent | null) ?? null,
     clarifications: (p.clarifications as Clarification[] | null) ?? [],
     generationError: p.generationError ?? null,
+    story: (p.storySpec as StoryExperience | null) ?? null,
+    readiness: (p.readiness as StoryReadiness | null) ?? null,
+    paletteId: p.paletteId ?? null,
     slides: p.slides.map(toSlideView),
     assets: p.assets.map((a) => ({
       id: a.id,

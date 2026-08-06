@@ -7,7 +7,9 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./pptx": "./src/pptx/index.ts"
+    "./pptx": "./src/pptx/index.ts",
+    "./pdf": "./src/pdf/index.ts",
+    "./source": "./src/source/index.ts"
   },
   "scripts": {
     "lint": "eslint src",
@@ -16,6 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
+    "pdf-lib": "^1.17.1",
     "pptxgenjs": "^3.12.0",
     "zod": "^3.24.3"
   },

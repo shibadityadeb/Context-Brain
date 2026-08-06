@@ -12,6 +12,7 @@ import {
   copilotSchema,
   createPresentationSchema,
   createSlideSchema,
+  exportParamsSchema,
   listPresentationsQuerySchema,
   slideIdParamsSchema,
   studioIdParamsSchema,
@@ -340,30 +341,31 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
     },
   );
 
-  // ── Export: editable PPTX (streamed as a download) ─────────────────────────────
+  // ── Exports (streamed as downloads) ───────────────────────────────────────────
+  //   pptx   — editable PowerPoint, native shapes
+  //   pdf    — print-ready vector document, selectable text
+  //   source — the generated website as a runnable Next.js project (.zip)
   app.get(
-    '/:id/export/pptx',
+    '/:id/export/:format',
     {
       preHandler: [authenticate],
       schema: {
         tags: ['studio'],
-        summary: 'Export an editable PowerPoint (.pptx)',
+        summary: 'Export the story as PowerPoint, PDF, or a Next.js source project',
         security: [{ bearerAuth: [] }],
-        params: studioIdParamsSchema,
+        params: exportParamsSchema,
       },
     },
     async (request, reply) => {
       const organizationId = await service.resolveOrganization(request.user!.id);
-      const { buffer, fileName } = await service.exportPptx(
+      const { buffer, fileName, contentType } = await service.exportAs(
         organizationId,
         request.params.id,
+        request.params.format,
         request.user!.email,
       );
       return reply
-        .header(
-          'Content-Type',
-          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        )
+        .header('Content-Type', contentType)
         .header('Content-Disposition', `attachment; filename="${fileName}"`)
         .send(buffer);
     },

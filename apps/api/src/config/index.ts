@@ -79,6 +79,9 @@ export const config = {
   },
   studio: {
     maxClarificationRounds: env.STUDIO_MAX_CLARIFICATION_ROUNDS,
+    readinessThreshold: env.STUDIO_READINESS_THRESHOLD,
+    maxQuestions: env.STUDIO_MAX_QUESTIONS,
+    targetScenes: env.STUDIO_TARGET_SCENES,
   },
   // Conversational answers (Ask Brain). Reuses the extraction provider/key
   // by default so one LLM configuration powers the whole brain.

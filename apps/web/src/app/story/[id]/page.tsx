@@ -1,47 +1,88 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 import { StoryExperience } from '@/components/story/story-experience';
+import { StoryBuilding, StoryQuestions } from '@/components/story/generation';
 import { studioApi, type StudioDetail } from '@/lib/api';
 
 /**
- * Deliberately outside the `(app)` route group. A story is a standalone site,
- * not an app workspace view — it must never inherit the Studio/sidebar/topbar.
+ * The story URL — one address for the whole lifecycle.
+ *
+ * Deliberately outside the `(app)` route group: a story is a standalone site,
+ * not an app workspace view, so it must never inherit the sidebar or topbar.
+ *
+ * The same URL carries the brief from generation to delivery — building, then
+ * any questions, then the finished experience — so a founder can share the link
+ * the moment they hit Generate and it becomes the real thing underneath them.
  */
 export default function StoryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [detail, setDetail] = useState<StudioDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void studioApi
-      .get(id)
-      .then(setDetail)
-      .catch(() => setError('This story is unavailable.'));
+  const load = useCallback(async () => {
+    try {
+      setDetail(await studioApi.get(id));
+    } catch {
+      setError('This story is unavailable.');
+    }
   }, [id]);
 
-  // A Web output has a permanent URL immediately. Keep this standalone page in
-  // sync while its async generation finishes, rather than sending the user back
-  // to Studio to wait for it.
   useEffect(() => {
-    if (detail?.status !== 'GENERATING') return;
-    const timer = window.setInterval(() => {
-      void studioApi.get(id).then(setDetail);
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [detail?.status, id]);
+    void load();
+  }, [load]);
 
-  if (error)
+  if (error) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#090a0e] text-sm text-white/55">
+      <main className="grid min-h-screen place-items-center bg-[#08080a] text-sm text-white/50">
         {error}
       </main>
     );
-  if (!detail)
+  }
+
+  if (!detail) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#090a0e] text-sm text-white/55">
-        Building the story…
+      <main className="grid min-h-screen place-items-center bg-[#08080a] text-sm text-white/40">
+        Opening the story…
       </main>
     );
+  }
+
+  if (detail.status === 'GENERATING') {
+    return (
+      <StoryBuilding
+        presentationId={id}
+        initialProgress={detail.generationProgress}
+        onDone={setDetail}
+      />
+    );
+  }
+
+  // A decision only the user can make. Shown before anything is built, never
+  // after — the readiness gate runs first precisely so this arrives in seconds.
+  if (detail.clarifications.length > 0 && !detail.story?.scenes?.length) {
+    return (
+      <StoryQuestions
+        presentationId={id}
+        clarifications={detail.clarifications}
+        readiness={detail.readiness}
+        onSubmitted={setDetail}
+      />
+    );
+  }
+
+  if (detail.status === 'FAILED') {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#08080a] px-6 text-center">
+        <div>
+          <p className="text-sm font-medium text-white/80">The story could not be built.</p>
+          <p className="mt-2 max-w-md text-sm text-white/45">
+            {detail.generationError ?? 'Please try again.'}
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return <StoryExperience detail={detail} />;
 }

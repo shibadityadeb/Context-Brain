@@ -2970,6 +2970,19 @@ model StudioPresentation {
   // Summary of the Company Brain evidence the deck was generated from.
   sourceRefs          Json?
 
+  // The composed Story: art direction + scenes. This is the PRIMARY artifact —
+  // the interactive website renders it natively, and the presenter, PPTX and PDF
+  // are derived from it. Slides remain persisted as the derived 16:9 projection
+  // so the editor can edit them directly.
+  storySpec Json?
+  // The Readiness Analyst's verdict ({ confidence, grounded, gaps, verdict }).
+  // Kept alongside clarifications so the questions screen can show the user what
+  // WAS found, not only what is missing.
+  readiness Json?
+  // Explicit art-direction palette chosen in the editor; null = the Creative
+  // Director's own choice.
+  paletteId String?
+
   // Optional cover image (a StudioAsset id).
   coverAssetId String? @db.Uuid
 

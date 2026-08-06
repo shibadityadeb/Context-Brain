@@ -5,24 +5,31 @@ import {
   buildCreativeDirectionPrompt,
   buildMotionDirectionPrompt,
   buildExperiencePrompt,
-  buildSlidePrompt,
+  buildReadinessPrompt,
+  buildScenePrompt,
   fallbackOutline,
-  getLayout,
+  fallbackScenes,
   parseOutline,
   parseCreativeDirection,
   parseMotionDirection,
   parseExperienceBuild,
-  parseSlideContent,
+  parseReadiness,
+  parseScenes,
+  resolveArtDirection,
+  scenesToSlides,
+  STORY_SPEC_VERSION,
   type Clarification,
   type EvidenceItem,
-  type LayoutId,
   type PresentationIntent,
   type CreativeDirectionMode,
   type CreativeDirection,
   type MotionDirection,
   type ExperienceBuild,
-  type SlideContent,
   type SlideSource,
+  type SlideSpec,
+  type StoryExperience,
+  type StoryReadiness,
+  type StoryScene,
 } from '@company-brain/studio';
 
 interface Deps {
@@ -30,31 +37,35 @@ interface Deps {
   retrieval: RetrievalService;
 }
 
-export interface GeneratedSlide {
-  layout: LayoutId;
-  content: SlideContent;
-  notes: string | null;
-  sources: SlideSource[];
-  confidence: number;
-}
-
 export interface GenerationOutput {
   intent: PresentationIntent;
   clarifications: Clarification[];
-  slides: GeneratedSlide[];
-  /** Evidence summary persisted on the presentation. */
+  /** The analyst's verdict — surfaced even when no questions were needed, so the
+   *  UI can show what Company Brain actually contributed. */
+  readiness: StoryReadiness | null;
+  /** The primary artifact. Null only when the run stopped to ask questions. */
+  story: StoryExperience | null;
+  /** The 16:9 projection derived from `story.scenes`, persisted for the editor. */
+  slides: SlideSpec[];
   sourceRefs: SlideSource[];
 }
 
 export interface GenerationOptions {
   themeId?: string;
+  paletteId?: string | null;
   creativeDirection?: CreativeDirectionMode;
-  slideCount?: number;
+  sceneCount?: number;
   knownDetails?: Array<{ question: string; value: string }>;
   /** Which clarification round this is (1-based). */
   attempt?: number;
-  /** After this many rounds the deck is generated regardless (no more questions). */
+  /** After this many rounds the story is generated regardless (no more questions). */
   maxRounds?: number;
+  /** Confidence at or above which the engine never asks. */
+  readinessThreshold?: number;
+  /** Hard ceiling on questions in a round. */
+  maxQuestions?: number;
+  /** Whether the user supplied real imagery the composer may art-direct around. */
+  hasImages?: boolean;
   /** 0..100 progress callback for the "watch it build" UI. */
   onProgress?: (percent: number, note: string) => void | Promise<void>;
 }
@@ -85,12 +96,21 @@ const dedupeById = (items: RetrievedItem[]): RetrievedItem[] => {
 };
 
 /**
- * Generation engine — the "retrieve evidence → plan the story → write each
- * slide" pipeline, Codex-first. Pure and I/O-free beyond the injected retrieval
- * + LLM, so it can run inline (Phase 1 background job) or be lifted into a
- * Temporal activity later with no change. It never invents facts: everything is
- * grounded in Company Brain evidence, and missing critical facts surface as
- * clarifications rather than hallucinations.
+ * The Storytelling Engine.
+ *
+ *   retrieve ─▶ readiness gate ─▶ story architect ─▶ creative director
+ *            ─▶ motion director ─▶ experience plan ─▶ scene composer ─▶ ground
+ *
+ * Two things distinguish this from the previous pipeline. First, the readiness
+ * gate runs BEFORE any narrative work, so questions (when they happen at all)
+ * are asked in seconds rather than after a full generation. Second, the composer
+ * emits SCENES — the interactive experience is written directly, and the 16:9
+ * deck is derived from it. Slides are no longer the thing being generated.
+ *
+ * Pure and I/O-free beyond the injected retrieval + LLM, so it can run inline or
+ * be lifted into a Temporal activity unchanged. It never invents facts:
+ * everything is grounded in Company Brain evidence, and genuinely missing
+ * decisions surface as clarifications rather than hallucinations.
  */
 export class GenerationService {
   constructor(private readonly deps: Deps) {}
@@ -109,11 +129,11 @@ export class GenerationService {
     // On the final allowed round we force generation — no more questions.
     const allowClarifications = attempt < maxRounds;
 
-    await report(5, 'Searching Company Brain');
-    // Draw broadly on shared org knowledge so the deck reasons over the full
+    await report(4, 'Reading Company Brain');
+    // Draw broadly on shared org knowledge so the story reasons over the full
     // organizational context, not a shallow top-few. Combine the user's prompt
     // with a facet sweep of core company topics, because a generic prompt like
-    // "make a pitch deck" shares almost no keywords with the actual knowledge.
+    // "make an investor story" shares almost no keywords with the actual knowledge.
     const facetQuery =
       'company product architecture roadmap metrics revenue customers traction team vision mission problem solution market competitors business model';
     const [promptItems, facetItems] = await Promise.all([
@@ -123,98 +143,91 @@ export class GenerationService {
     const items = dedupeById([...promptItems, ...facetItems]).slice(0, 50);
     const evidence = toEvidence(items);
     const evidenceById = new Map(items.map((i) => [i.id, i] as const));
+    const sourceRefs = items.slice(0, 20).map(toSource);
 
-    await report(20, 'Designing the story');
-    const outline = await this.planOutline(prompt, evidence, options, allowClarifications);
-    outline.intent.creativeDirection = await this.directCreative(
-      outline.intent.blueprint,
-      options.creativeDirection,
-    );
-    outline.intent.motionDirection = await this.directMotion(
-      outline.intent.blueprint,
-      outline.intent.creativeDirection,
-    );
-    outline.intent.experienceBuild = await this.buildExperience(
-      outline.intent.blueprint,
-      outline.intent.creativeDirection,
-      outline.intent.motionDirection,
-    );
+    // ── The gate ────────────────────────────────────────────────────────────
+    await report(14, 'Checking what we already know');
+    const { readiness, questions } = await this.assessReadiness(prompt, evidence, options);
 
-    // Never re-ask something already answered; drop those before returning.
     const answered = new Set(
       (options.knownDetails ?? []).map((d) => normalizeQuestion(d.question)),
     );
-    const pending = allowClarifications
-      ? outline.clarifications.filter((c) => !answered.has(normalizeQuestion(c.question)))
-      : [];
+    const threshold = options.readinessThreshold ?? 0.62;
+    const pending =
+      allowClarifications && readiness.confidence < threshold
+        ? questions.filter((q) => !answered.has(normalizeQuestion(q.question)))
+        : [];
 
-    // Missing critical evidence AND we still have rounds left → ask (all at once).
     if (pending.length > 0) {
       return {
-        intent: outline.intent,
+        intent: this.provisionalIntent(prompt),
         clarifications: pending,
+        readiness,
+        story: null,
         slides: [],
-        sourceRefs: items.slice(0, 20).map(toSource),
+        sourceRefs,
       };
     }
 
-    const plans = options.slideCount ? outline.slides.slice(0, options.slideCount) : outline.slides;
-    const slides: GeneratedSlide[] = [];
+    // ── Direction ───────────────────────────────────────────────────────────
+    await report(26, 'Architecting the narrative');
+    const outline = await this.planOutline(prompt, evidence, options);
+    const intent: PresentationIntent = { ...outline.intent };
 
-    for (let i = 0; i < plans.length; i += 1) {
-      const plan = plans[i]!;
-      const pct = 25 + Math.round((i / Math.max(1, plans.length)) * 65);
-      await report(pct, `Writing slide ${i + 1} of ${plans.length}`);
+    await report(42, 'Setting creative direction');
+    intent.creativeDirection = await this.directCreative(
+      intent.blueprint,
+      options.creativeDirection,
+    );
 
-      const layout = getLayout(plan.layout) ?? getLayout('bullet-list')!;
+    await report(54, 'Choreographing motion');
+    intent.motionDirection = await this.directMotion(intent.blueprint, intent.creativeDirection);
 
-      // KB grounding, the whole point: search Company Brain for THIS slide's topic
-      // (its title + key points) rather than reusing the prompt-level pool, then
-      // merge with any evidence the outline explicitly cited.
-      const topicQuery = [plan.title, plan.purpose, ...plan.keyPoints].filter(Boolean).join(' ');
-      const topicItems = topicQuery ? await this.retrieve(organizationId, topicQuery, 12) : [];
-      for (const it of topicItems) evidenceById.set(it.id, it);
+    await report(62, 'Planning the experience');
+    intent.experienceBuild = await this.buildExperience(
+      intent.blueprint,
+      intent.creativeDirection,
+      intent.motionDirection,
+    );
 
-      const cited = plan.sourceIds
-        .map((id) => evidenceById.get(id))
-        .filter((x): x is RetrievedItem => Boolean(x));
-      const slideEvidence = dedupeById([...topicItems, ...cited, ...items.slice(0, 6)]).slice(
-        0,
-        14,
-      );
+    // ── Composition ─────────────────────────────────────────────────────────
+    await report(72, 'Composing the scenes');
+    const composed = await this.composeScenes(evidence, intent, options);
 
-      const generated = await this.writeSlide(
-        plan,
-        layout.id,
-        toEvidence(slideEvidence),
-        outline.intent,
-      );
+    // ── Grounding ───────────────────────────────────────────────────────────
+    await report(88, 'Grounding every claim');
+    const scenes = await this.groundScenes(organizationId, composed.scenes, composed.sourceIds, {
+      evidenceById,
+      fallbackItems: items,
+    });
 
-      // Prefer the model's cited sources; otherwise attribute the top KB hits we
-      // actually fed it so every grounded slide shows its provenance.
-      const modelSources = generated.sourceIds
-        .map((id) => evidenceById.get(id))
-        .filter((x): x is RetrievedItem => Boolean(x));
-      const sources = (modelSources.length ? modelSources : topicItems.slice(0, 3)).map(toSource);
+    const art = resolveArtDirection({
+      direction: intent.creativeDirection,
+      paletteId: options.paletteId,
+    });
 
-      slides.push({
-        layout: generated.layout ?? layout.id,
-        content: generated.content,
-        notes: generated.notes,
-        sources,
-        confidence: sources.length ? Math.min(1, 0.5 + sources.length * 0.15) : 0.4,
-      });
-    }
+    const story: StoryExperience = {
+      version: STORY_SPEC_VERSION,
+      title: intent.blueprint?.title || intent.documentType || 'Untitled story',
+      tagline: composed.tagline ?? intent.blueprint?.coreMessage,
+      art,
+      scenes,
+      readiness,
+      pacing: intent.motionDirection?.overallPacing,
+    };
 
-    await report(95, 'Finishing up');
+    await report(96, 'Rendering every output');
     return {
       intent: {
-        ...outline.intent,
-        themeId: (options.themeId as PresentationIntent['themeId']) ?? outline.intent.themeId,
+        ...intent,
+        slideCount: scenes.length,
+        themeId: (options.themeId as PresentationIntent['themeId']) ?? intent.themeId,
       },
       clarifications: [],
-      slides,
-      sourceRefs: items.slice(0, 20).map(toSource),
+      readiness,
+      story,
+      slides: scenesToSlides(scenes),
+      sourceRefs,
     };
   }
 
@@ -231,24 +244,67 @@ export class GenerationService {
     }
   }
 
-  private async planOutline(
+  /** A minimal intent for the questions screen, before any narrative exists. The
+   *  readiness verdict travels on its own field, not smuggled into the intent. */
+  private provisionalIntent(prompt: string): PresentationIntent {
+    return {
+      documentType: 'Story',
+      audience: 'General',
+      purpose: prompt,
+      tone: 'Considered',
+      slideCount: 0,
+      themeId: 'modern',
+    };
+  }
+
+  /**
+   * The readiness gate. A parse failure or an unavailable model must never block
+   * generation, so the fallback is "confident enough, ask nothing" — the product
+   * degrades toward building rather than toward interrogating the user.
+   */
+  private async assessReadiness(
     prompt: string,
     evidence: EvidenceItem[],
     options: GenerationOptions,
-    allowClarifications: boolean,
-  ) {
+  ): Promise<{ readiness: StoryReadiness; questions: Clarification[] }> {
+    const maxQuestions = options.maxQuestions ?? 3;
+    const { system, prompt: user } = buildReadinessPrompt({
+      request: prompt,
+      evidence,
+      knownDetails: options.knownDetails,
+      maxQuestions,
+    });
+    try {
+      const raw = await this.deps.llm.complete({ system, prompt: user });
+      return parseReadiness(raw, maxQuestions);
+    } catch {
+      return {
+        readiness: {
+          confidence: 1,
+          grounded: evidence.slice(0, 4).map((e) => e.title),
+          gaps: [],
+          verdict: 'Proceeding with the evidence available.',
+        },
+        questions: [],
+      };
+    }
+  }
+
+  private async planOutline(prompt: string, evidence: EvidenceItem[], options: GenerationOptions) {
+    // Clarifications are the readiness gate's job now; the architect only writes
+    // narrative. Passing `false` keeps it from re-opening that decision.
     const { system, prompt: user } = buildOutlinePrompt({
       request: prompt,
       evidence,
       knownDetails: options.knownDetails,
-      allowClarifications,
+      allowClarifications: false,
     });
     try {
       const raw = await this.deps.llm.complete({ system, prompt: user });
-      return parseOutline(raw, options.slideCount);
+      return parseOutline(raw);
     } catch {
       // Model unavailable or unparseable → deterministic outline keeps it demoable.
-      return fallbackOutline(prompt, options.slideCount ?? 8);
+      return fallbackOutline(prompt, options.sceneCount ?? 10);
     }
   }
 
@@ -319,37 +375,88 @@ export class GenerationService {
     }
   }
 
-  private async writeSlide(
-    plan: {
-      layout: LayoutId;
-      purpose: string;
-      title: string;
-      keyPoints: string[];
-      sourceIds: string[];
-    },
-    layoutId: LayoutId,
+  /**
+   * Compose the whole story in one call. Deliberately not per-scene: rhythm is a
+   * property of the SEQUENCE, and a model that can only see one scene at a time
+   * produces twelve variations of the same scene. Seeing the whole arc is what
+   * lets it decide that scene 7 should be a single sentence.
+   */
+  private async composeScenes(
     evidence: EvidenceItem[],
     intent: PresentationIntent,
-  ) {
-    const layout = getLayout(layoutId)!;
-    const { system, prompt } = buildSlidePrompt({
-      plan,
-      layout,
+    options: GenerationOptions,
+  ): Promise<{ scenes: StoryScene[]; sourceIds: string[][]; tagline?: string }> {
+    const blueprint = intent.blueprint;
+    const creativeDirection = intent.creativeDirection;
+    const motionDirection = intent.motionDirection;
+
+    if (!blueprint || !creativeDirection || !motionDirection) {
+      const scenes = blueprint
+        ? fallbackScenes({ blueprint, creativeDirection, motionDirection })
+        : [];
+      return { scenes, sourceIds: scenes.map(() => []) };
+    }
+
+    const { system, prompt } = buildScenePrompt({
+      blueprint,
+      creativeDirection,
+      motionDirection,
       evidence,
-      intentTone: intent.tone,
-      audience: intent.audience,
-      creativeDirection: intent.creativeDirection,
+      knownDetails: options.knownDetails,
+      targetSceneCount: options.sceneCount ?? 12,
+      hasImages: options.hasImages ?? false,
     });
     try {
       const raw = await this.deps.llm.complete({ system, prompt });
-      return parseSlideContent(raw, layoutId, { title: plan.title, keyPoints: plan.keyPoints });
+      const parsed = parseScenes(raw, { motionDirection });
+      if (!parsed.scenes.length) throw new Error('empty composition');
+      return parsed;
     } catch {
-      // Fall back to a title + key points so the slide still renders.
-      return parseSlideContent(
-        JSON.stringify({ content: { title: plan.title }, sourceIds: plan.sourceIds }),
-        layoutId,
-        { title: plan.title, keyPoints: plan.keyPoints },
-      );
+      const scenes = fallbackScenes({ blueprint, creativeDirection, motionDirection });
+      return { scenes, sourceIds: scenes.map(() => []) };
     }
+  }
+
+  /**
+   * Attach real provenance to each scene. The composer cites evidence ids; this
+   * resolves them and tops up with a topical retrieval per scene, so "click a
+   * statement → see the source" works for scenes the model forgot to cite.
+   * Retrieval-only — no further model calls, so grounding costs latency, not tokens.
+   */
+  private async groundScenes(
+    organizationId: string,
+    scenes: StoryScene[],
+    citedIds: string[][],
+    context: { evidenceById: Map<string, RetrievedItem>; fallbackItems: RetrievedItem[] },
+  ): Promise<StoryScene[]> {
+    return Promise.all(
+      scenes.map(async (scene, index) => {
+        const cited = (citedIds[index] ?? [])
+          .map((id) => context.evidenceById.get(id))
+          .filter((item): item is RetrievedItem => Boolean(item));
+
+        let sources = cited;
+        if (sources.length < 2) {
+          const topic = [scene.title, scene.eyebrow, scene.body, ...(scene.points ?? [])]
+            .filter(Boolean)
+            .join(' ');
+          const topical = topic ? await this.retrieve(organizationId, topic, 4) : [];
+          sources = dedupeById([...cited, ...topical]);
+        }
+        // A hero or CTA carries no claims — attributing evidence there is noise.
+        const carriesClaims = scene.kind !== 'hero' && scene.kind !== 'cta';
+        const attributed = carriesClaims ? sources.slice(0, 4) : [];
+
+        return {
+          ...scene,
+          sources: attributed.map(toSource),
+          confidence: carriesClaims
+            ? attributed.length
+              ? Math.min(1, 0.45 + attributed.length * 0.15)
+              : 0.35
+            : null,
+        };
+      }),
+    );
   }
 }

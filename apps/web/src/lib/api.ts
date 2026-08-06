@@ -2694,6 +2694,8 @@ import type {
   PresentationIntent as StudioIntent,
   SlideContent as StudioSlideContent,
   SlideSource as StudioSlideSource,
+  StoryExperience as StudioStory,
+  StoryReadiness as StudioReadiness,
   ThemeId as StudioThemeId,
 } from '@company-brain/studio';
 
@@ -2704,6 +2706,8 @@ export type {
   StudioSlideSource,
   StudioIntent,
   StudioClarification,
+  StudioStory,
+  StudioReadiness,
 };
 
 export type StudioStatus = 'GENERATING' | 'READY' | 'FAILED' | 'DRAFT' | 'ARCHIVED';
@@ -2748,6 +2752,11 @@ export interface StudioDetail extends StudioSummary {
   generationError: string | null;
   slides: StudioSlideView[];
   assets: StudioAssetView[];
+  /** The composed story — art direction + scenes. Null for decks generated
+   *  before the Storytelling Engine; those are lifted from slides client-side. */
+  story: StudioStory | null;
+  readiness: StudioReadiness | null;
+  paletteId: string | null;
 }
 
 export interface StudioRegistry {
@@ -2794,6 +2803,11 @@ export const studioApi = {
   create(body: {
     prompt: string;
     themeId?: string;
+    /** Narrative register; omitted lets the Creative Director choose. */
+    creativeDirection?: 'investor' | 'product-launch' | 'editorial';
+    /** Art-direction palette; omitted lets the Creative Director choose. */
+    paletteId?: string;
+    sceneCount?: number;
     slideCount?: number;
     title?: string;
   }): Promise<StudioDetail> {
@@ -2812,7 +2826,14 @@ export const studioApi = {
 
   update(
     id: string,
-    body: { title?: string; themeId?: string; coverAssetId?: string | null; slideOrder?: string[] },
+    body: {
+      title?: string;
+      themeId?: string;
+      coverAssetId?: string | null;
+      /** Re-art-directs the whole story instantly — no regeneration. */
+      paletteId?: string | null;
+      slideOrder?: string[];
+    },
   ): Promise<StudioDetail> {
     return request(`/api/v1/studio/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
@@ -2872,22 +2893,32 @@ export const studioApi = {
     return request(`/api/v1/studio/${id}/assets`, { method: 'POST', body: form });
   },
 
-  /** Fetch the editable PPTX with auth and trigger a browser download. */
-  async exportPptx(id: string, fileName: string): Promise<void> {
+  /**
+   * Fetch an export with auth and hand it to the browser as a download.
+   * All three formats stream from the API rather than being built client-side,
+   * so a download is byte-identical no matter which surface asked for it.
+   */
+  async download(id: string, format: 'pptx' | 'pdf' | 'source', fileName: string): Promise<void> {
     const token = getAccessToken();
-    const res = await fetch(`${API_URL}/api/v1/studio/${id}/export/pptx`, {
+    const res = await fetch(`${API_URL}/api/v1/studio/${id}/export/${format}`, {
       credentials: 'include',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) throw new ApiRequestError('Export failed', res.status, null);
+    const extension = format === 'source' ? 'zip' : format;
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName.endsWith('.pptx') ? fileName : `${fileName}.pptx`;
+    a.download = fileName.endsWith(`.${extension}`) ? fileName : `${fileName}.${extension}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  },
+
+  /** @deprecated use `download(id, 'pptx', name)`. */
+  exportPptx(id: string, fileName: string): Promise<void> {
+    return studioApi.download(id, 'pptx', fileName);
   },
 };

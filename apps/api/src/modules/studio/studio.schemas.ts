@@ -30,7 +30,12 @@ export const createPresentationSchema = z.object({
   /** Optional explicit overrides; otherwise the AI derives them. */
   themeId: z.string().max(40).optional(),
   creativeDirection: z.enum(['investor', 'product-launch', 'editorial']).optional(),
+  /** How many scenes to compose. `slideCount` is kept as a deprecated alias so
+   *  existing clients keep working. */
+  sceneCount: z.coerce.number().int().min(5).max(24).optional(),
   slideCount: z.coerce.number().int().min(1).max(40).optional(),
+  /** Explicit art-direction palette; omitted lets the Creative Director choose. */
+  paletteId: z.string().max(40).optional(),
   title: z.string().max(300).optional(),
 });
 export type CreatePresentationBody = z.infer<typeof createPresentationSchema>;
@@ -49,6 +54,8 @@ export const updatePresentationSchema = z.object({
   themeId: z.string().max(40).optional(),
   /** Brand mark used by the standalone Story website. */
   coverAssetId: z.string().uuid().nullable().optional(),
+  /** Re-art-direct the whole story to a different palette, live. */
+  paletteId: z.string().max(40).nullable().optional(),
   /** New full ordering of slide ids (drag/reorder). */
   slideOrder: z.array(z.string().uuid()).max(200).optional(),
 });
@@ -82,7 +89,8 @@ export const copilotSchema = z.object({
 });
 export type CopilotBody = z.infer<typeof copilotSchema>;
 
-export const exportQuerySchema = z.object({
-  format: z.enum(['pptx']).default('pptx'),
+export const exportParamsSchema = z.object({
+  id: z.string().uuid(),
+  format: z.enum(['pptx', 'pdf', 'source']),
 });
-export type ExportQuery = z.infer<typeof exportQuerySchema>;
+export type ExportParams = z.infer<typeof exportParamsSchema>;

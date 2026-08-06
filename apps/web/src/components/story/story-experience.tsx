@@ -1,166 +1,153 @@
 'use client';
 
-import Link from 'next/link';
-import { Copy, ImagePlus, Loader2, Upload } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { StudioDetail } from '@/lib/api';
-import { studioApi } from '@/lib/api';
-import { compileExperience, type StorySection } from './compiler';
-import {
-  ArchitectureSection,
-  CTASection,
-  FeatureSection,
-  HeroSection,
-  MetricSection,
-  ProblemSection,
-  RevealSection,
-  TimelineSection,
-  TransitionSection,
-} from './sections';
+import Lenis from 'lenis';
+import { useEffect, useMemo, useState } from 'react';
+import { artDirectionCssVars } from '@company-brain/studio';
+import { studioApi, type StudioDetail } from '@/lib/api';
+import { LogoIntro, SceneRail, ScrollProgress, StoryHeader, useActiveScene } from './chrome';
+import { resolveStory } from './lib/legacy';
+import { useReducedMotionSafe } from './lib/motion';
+import { SCENE_COMPONENTS } from './scenes';
 
-const components = {
-  hero: HeroSection,
-  problem: ProblemSection,
-  transition: TransitionSection,
-  metrics: MetricSection,
-  architecture: ArchitectureSection,
-  timeline: TimelineSection,
-  reveal: RevealSection,
-  features: FeatureSection,
-  cta: CTASection,
-} as const;
-
-/** A standalone, shareable storytelling website. It has no Studio renderer,
- * canvas or slide navigation — scrolling is the presentation. */
+/**
+ * The interactive website — the flagship output of the Storytelling Engine.
+ *
+ * This is a standalone site, not a Studio view: no sidebar, no app chrome, no
+ * slide canvas. It renders the composed scene list natively, which is what makes
+ * it an experience rather than a deck with scroll behaviour bolted on.
+ *
+ * The art direction resolves once here into CSS custom properties on the root,
+ * so every scene, every diagram and the print sheet all read from one set of
+ * tokens — and swapping the palette restyles the entire site instantly.
+ */
 export function StoryExperience({ detail }: { detail: StudioDetail }) {
-  const [assets, setAssets] = useState(detail.assets);
-  const [logoId, setLogoId] = useState(detail.coverAssetId);
-  const [uploading, setUploading] = useState<'logo' | 'image' | null>(null);
-  const [copied, setCopied] = useState(false);
-  const logoRef = useRef<HTMLInputElement>(null);
-  const imageRef = useRef<HTMLInputElement>(null);
-  const story = useMemo(
-    () => ({ ...detail, assets, coverAssetId: logoId }),
-    [assets, detail, logoId],
+  const reduced = useReducedMotionSafe();
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  const story = useMemo(() => resolveStory(detail), [detail]);
+
+  const assetUrls = useMemo(
+    () =>
+      Object.fromEntries(
+        detail.assets.filter((asset) => asset.url).map((asset) => [asset.id, asset.url as string]),
+      ),
+    [detail.assets],
   );
-  const sections = compileExperience(story);
-  const [progress, setProgress] = useState(0);
+  const logoUrl = detail.coverAssetId ? (assetUrls[detail.coverAssetId] ?? null) : null;
+
+  const scenes = story?.scenes ?? [];
+  const active = useActiveScene(scenes);
+
+  /**
+   * Smooth scrolling. Lenis is what makes scroll-driven motion feel authored
+   * rather than mechanical — but it is opt-out: reduced-motion users get the
+   * browser's native scrolling, untouched.
+   */
   useEffect(() => {
-    const update = () =>
-      setProgress(window.scrollY / Math.max(1, document.body.scrollHeight - window.innerHeight));
-    update();
-    window.addEventListener('scroll', update, { passive: true });
-    return () => window.removeEventListener('scroll', update);
-  }, []);
-  const upload = async (kind: 'logo' | 'image', file?: File) => {
-    if (!file) return;
-    setUploading(kind);
+    if (reduced) return;
+    const lenis = new Lenis({
+      duration: 1.05,
+      // Gentle exponential settle — matches the easing used across the scenes.
+      easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      touchMultiplier: 1.6,
+    });
+    let frame = 0;
+    const raf = (time: number) => {
+      lenis.raf(time);
+      frame = requestAnimationFrame(raf);
+    };
+    frame = requestAnimationFrame(raf);
+
+    // Anchor links must be handed to Lenis or they fight the smooth scroller.
+    const onClick = (event: MouseEvent) => {
+      const anchor = (event.target as HTMLElement | null)?.closest?.('a[href^="#"]');
+      if (!anchor) return;
+      const id = anchor.getAttribute('href')?.slice(1);
+      const target = id ? document.getElementById(id) : null;
+      if (!target) return;
+      event.preventDefault();
+      lenis.scrollTo(target, { offset: 0 });
+    };
+    document.addEventListener('click', onClick);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('click', onClick);
+      lenis.destroy();
+    };
+  }, [reduced]);
+
+  const download = async (kind: 'pptx' | 'pdf' | 'source') => {
+    setDownloading(kind);
     try {
-      const asset = await studioApi.uploadAsset(detail.id, file);
-      setAssets((current) => [
-        ...current,
-        { ...asset, mimeType: file.type, caption: null, width: null, height: null },
-      ]);
-      if (kind === 'logo') {
-        await studioApi.update(detail.id, { coverAssetId: asset.id });
-        setLogoId(asset.id);
-      }
+      await studioApi.download(detail.id, kind, detail.title || 'story');
     } finally {
-      setUploading(null);
+      setDownloading(null);
     }
   };
-  const logo = assets.find((asset) => asset.id === logoId)?.url;
-  const copyUrl = async () => {
-    await navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  };
+
+  if (!story || !scenes.length) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#08080a] text-sm text-white/50">
+        This story has no scenes yet.
+      </main>
+    );
+  }
+
   return (
-    <main className="bg-[#090a0e] [scroll-snap-type:y_mandatory]">
-      <div
-        className="fixed inset-x-0 top-0 z-50 h-px origin-left bg-[#e8c56a]"
-        style={{ transform: `scaleX(${progress})` }}
+    <main
+      className="story-root relative"
+      style={{ ...artDirectionCssVars(story.art), background: story.art.base }}
+    >
+      <LogoIntro logoUrl={logoUrl} art={story.art} />
+      <ScrollProgress art={story.art} />
+      <StoryHeader
+        title={story.title}
+        logoUrl={logoUrl}
+        downloading={downloading}
+        onDownload={(kind) => void download(kind)}
+        links={{
+          presentHref: `/studio/${detail.id}/present`,
+          pptxHref: '#',
+          pdfHref: '#',
+          sourceHref: '#',
+        }}
       />
-      <header className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-3 px-6 py-5 mix-blend-difference sm:px-10">
-        <div className="flex min-w-0 items-center gap-3">
-          {logo ? (
-            <img
-              src={logo}
-              alt="Company logo"
-              className="h-7 max-w-28 object-contain object-left"
-            />
-          ) : (
-            <Link
-              href={`/studio/${detail.id}`}
-              className="text-xs font-medium tracking-wide text-white/80 hover:text-white"
-            >
-              ← Back to Studio
-            </Link>
-          )}
-          <span className="hidden max-w-[32vw] truncate text-xs tracking-[.18em] text-white/60 sm:block">
-            {detail.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <button
-            onClick={copyUrl}
-            className="rounded-full border border-white/20 px-3 py-1.5 text-white/80 hover:bg-white/10"
-          >
-            <Copy className="mr-1 inline h-3 w-3" />
-            {copied ? 'Copied' : 'Copy live URL'}
-          </button>
-          <button
-            onClick={() => logoRef.current?.click()}
-            className="hidden rounded-full border border-white/20 px-3 py-1.5 text-white/80 hover:bg-white/10 sm:block"
-          >
-            {uploading === 'logo' ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <>
-                <Upload className="mr-1 inline h-3 w-3" />
-                Logo
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => imageRef.current?.click()}
-            className="hidden rounded-full border border-white/20 px-3 py-1.5 text-white/80 hover:bg-white/10 sm:block"
-          >
-            {uploading === 'image' ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <>
-                <ImagePlus className="mr-1 inline h-3 w-3" />
-                Images
-              </>
-            )}
-          </button>
-        </div>
-        <input
-          ref={logoRef}
-          hidden
-          type="file"
-          accept="image/*"
-          onChange={(event) => {
-            void upload('logo', event.target.files?.[0]);
-            event.currentTarget.value = '';
-          }}
-        />
-        <input
-          ref={imageRef}
-          hidden
-          type="file"
-          accept="image/*"
-          onChange={(event) => {
-            void upload('image', event.target.files?.[0]);
-            event.currentTarget.value = '';
-          }}
-        />
-      </header>
-      {sections.map((section) => {
-        const Component = components[section.kind];
-        return <Component key={section.id} section={section as StorySection} />;
+      <SceneRail scenes={scenes} active={active} />
+
+      {scenes.map((scene) => {
+        const Scene = SCENE_COMPONENTS[scene.kind];
+        return (
+          <Scene
+            key={scene.id}
+            scene={scene}
+            art={story.art}
+            assetUrls={assetUrls}
+            logoUrl={logoUrl}
+            total={scenes.length}
+          />
+        );
       })}
+
+      <footer
+        className="flex flex-col items-center gap-3 px-6 py-14 text-center"
+        style={{ background: story.art.base, color: story.art.inkMuted }}
+      >
+        {story.tagline && (
+          <p
+            className="max-w-[46ch] text-[0.82rem] leading-relaxed"
+            style={{ fontFamily: 'var(--story-body)' }}
+          >
+            {story.tagline}
+          </p>
+        )}
+        <p
+          className="text-[0.66rem] uppercase tracking-[0.24em] opacity-50"
+          style={{ fontFamily: 'var(--story-body)' }}
+        >
+          Built from Company Brain
+        </p>
+      </footer>
     </main>
   );
 }

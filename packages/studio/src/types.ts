@@ -325,6 +325,11 @@ export interface Clarification {
   field: string;
   question: string;
   hint?: string | null;
+  /** Sensible answers when the question is a choice ("Investor / Customer /
+   *  Board"). Lets the UI offer one-click answers instead of a text box, which
+   *  is the difference between a question that feels intelligent and one that
+   *  feels like a form. */
+  options?: string[] | null;
 }
 
 /** The LLM's story plan for a single slide, before content is generated. */
