@@ -74,6 +74,10 @@ const envSchema = z.object({
 
   UPLOAD_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(50),
 
+  // Studio: how many rounds of clarifying questions before the deck is generated
+  // regardless (so it can never loop asking the same things).
+  STUDIO_MAX_CLARIFICATION_ROUNDS: z.coerce.number().int().positive().default(3),
+
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
   GOOGLE_REDIRECT_URI: z

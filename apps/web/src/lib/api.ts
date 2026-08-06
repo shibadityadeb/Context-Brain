@@ -2685,3 +2685,209 @@ export const llmApi = {
     return request('/api/v1/llm/settings', { method: 'DELETE' });
   },
 };
+
+// ── Company Brain Studio ──────────────────────────────────────────────────────
+
+import type {
+  Clarification as StudioClarification,
+  LayoutId as StudioLayoutId,
+  PresentationIntent as StudioIntent,
+  SlideContent as StudioSlideContent,
+  SlideSource as StudioSlideSource,
+  ThemeId as StudioThemeId,
+} from '@company-brain/studio';
+
+export type {
+  StudioLayoutId,
+  StudioThemeId,
+  StudioSlideContent,
+  StudioSlideSource,
+  StudioIntent,
+  StudioClarification,
+};
+
+export type StudioStatus = 'GENERATING' | 'READY' | 'FAILED' | 'DRAFT' | 'ARCHIVED';
+
+export interface StudioSlideView {
+  id: string;
+  index: number;
+  layout: StudioLayoutId;
+  content: StudioSlideContent;
+  notes: string | null;
+  sources: StudioSlideSource[];
+  confidence: number | null;
+}
+
+export interface StudioAssetView {
+  id: string;
+  url: string | null;
+  mimeType: string;
+  caption: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface StudioSummary {
+  id: string;
+  title: string;
+  themeId: StudioThemeId;
+  status: StudioStatus;
+  slideCount: number;
+  createdBy: string;
+  creatorName: string | null;
+  coverAssetId: string | null;
+  generationProgress: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface StudioDetail extends StudioSummary {
+  prompt: string;
+  intent: StudioIntent | null;
+  clarifications: StudioClarification[];
+  generationError: string | null;
+  slides: StudioSlideView[];
+  assets: StudioAssetView[];
+}
+
+export interface StudioRegistry {
+  layouts: Array<{ id: StudioLayoutId; name: string; description: string }>;
+  themes: Array<{
+    id: StudioThemeId;
+    name: string;
+    mode: 'light' | 'dark';
+    colors: Record<string, string>;
+  }>;
+}
+
+export interface StudioCopilotResult {
+  slideId: string;
+  result: {
+    content: StudioSlideContent;
+    notes: string | null;
+    layout: StudioLayoutId;
+    sources: StudioSlideSource[];
+    explanation: string;
+  };
+}
+
+export const studioApi = {
+  registry(): Promise<StudioRegistry> {
+    return request('/api/v1/studio/registry');
+  },
+
+  list(
+    params: {
+      view?: 'recent' | 'drafts' | 'shared' | 'all';
+      search?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ items: StudioSummary[]; total: number }> {
+    return request(`/api/v1/studio${toQuery({ ...params })}`);
+  },
+
+  get(id: string): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}`);
+  },
+
+  create(body: {
+    prompt: string;
+    themeId?: string;
+    slideCount?: number;
+    title?: string;
+  }): Promise<StudioDetail> {
+    return request('/api/v1/studio', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  answer(
+    id: string,
+    answers: Array<{ field: string; question: string; value: string }>,
+  ): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/answers`, {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
+    });
+  },
+
+  update(
+    id: string,
+    body: { title?: string; themeId?: string; slideOrder?: string[] },
+  ): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  remove(id: string): Promise<{ id: string }> {
+    return request(`/api/v1/studio/${id}`, { method: 'DELETE' });
+  },
+
+  addSlide(
+    id: string,
+    body: {
+      layout?: string;
+      content?: Record<string, unknown>;
+      notes?: string | null;
+      index?: number;
+    },
+  ): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/slides`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  updateSlide(
+    id: string,
+    slideId: string,
+    body: { layout?: string; content?: Record<string, unknown>; notes?: string | null },
+  ): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/slides/${slideId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  duplicateSlide(id: string, slideId: string): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/slides/${slideId}/duplicate`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  deleteSlide(id: string, slideId: string): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/slides/${slideId}`, { method: 'DELETE' });
+  },
+
+  copilot(
+    id: string,
+    slideId: string,
+    body: { instruction: string; useEvidence?: boolean },
+  ): Promise<StudioCopilotResult> {
+    return request(`/api/v1/studio/${id}/slides/${slideId}/copilot`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async uploadAsset(id: string, file: File): Promise<{ id: string; url: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    return request(`/api/v1/studio/${id}/assets`, { method: 'POST', body: form });
+  },
+
+  /** Fetch the editable PPTX with auth and trigger a browser download. */
+  async exportPptx(id: string, fileName: string): Promise<void> {
+    const token = getAccessToken();
+    const res = await fetch(`${API_URL}/api/v1/studio/${id}/export/pptx`, {
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new ApiRequestError('Export failed', res.status, null);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName.endsWith('.pptx') ? fileName : `${fileName}.pptx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+};

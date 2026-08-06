@@ -36,6 +36,10 @@ export const EVENT_TYPES = [
   // source. The web subscribes to these to auto-refresh affected views.
   'knowledge.updated',
   'memory.updated',
+  // Studio — the editor subscribes to these to stream generation progress and
+  // reflect deck/slide changes live.
+  'studio.generation.progress',
+  'studio.presentation.updated',
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

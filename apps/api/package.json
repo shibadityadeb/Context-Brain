@@ -30,6 +30,7 @@
     "@company-brain/llm": "workspace:*",
     "@company-brain/meeting-engine": "workspace:*",
     "@company-brain/retrieval": "workspace:*",
+    "@company-brain/studio": "workspace:*",
     "@company-brain/types": "workspace:*",
     "@company-brain/utils": "workspace:*",
     "@company-brain/workflows": "workspace:*",

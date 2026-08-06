@@ -10,10 +10,21 @@ const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   outputFileTracingRoot: repoRoot,
-  transpilePackages: ['@company-brain/ui', '@company-brain/types'],
+  transpilePackages: ['@company-brain/ui', '@company-brain/types', '@company-brain/studio'],
   eslint: {
     // Linting runs via `pnpm lint` (shared flat config), not next build.
     ignoreDuringBuilds: true,
+  },
+  // `@company-brain/studio` is authored as NodeNext ESM source (relative imports
+  // carry `.js` extensions). webpack doesn't rewrite `.js`→`.ts` the way tsc
+  // does, so teach it to resolve source extensions for those specifiers.
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ...(config.resolve.extensionAlias ?? {}),
+      '.js': ['.ts', '.tsx', '.js'],
+      '.mjs': ['.mts', '.mjs'],
+    };
+    return config;
   },
 };
 
