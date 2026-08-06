@@ -2812,7 +2812,7 @@ export const studioApi = {
 
   update(
     id: string,
-    body: { title?: string; themeId?: string; slideOrder?: string[] },
+    body: { title?: string; themeId?: string; coverAssetId?: string | null; slideOrder?: string[] },
   ): Promise<StudioDetail> {
     return request(`/api/v1/studio/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },

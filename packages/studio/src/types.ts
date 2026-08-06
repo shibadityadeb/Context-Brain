@@ -1,5 +1,6 @@
 /**
- * Studio content model — the single source of truth shared by three consumers:
+ * Creative Storytelling Engine content model — the single source of truth shared by
+ * the interactive web experience, the presenter, and export renderers.
  *   1. the React layout components that render each slide as responsive HTML,
  *   2. the inline editor that binds fields for direct editing, and
  *   3. the pptx mapper that emits native, editable PowerPoint shapes.
@@ -18,6 +19,12 @@ import { z } from 'zod';
 export const LAYOUT_IDS = [
   'cover',
   'hero',
+  'statement',
+  'pause',
+  'chapter',
+  'spotlight',
+  'journey',
+  'flow',
   'two-column',
   'three-column',
   'image-left',
@@ -46,6 +53,10 @@ export const THEME_IDS = [
   'dark',
   'light',
   'executive',
+  'cinematic',
+  'editorial',
+  'architectural',
+  'glass',
 ] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 
@@ -202,6 +213,110 @@ export interface PresentationIntent {
   tone: string;
   slideCount: number;
   themeId: ThemeId;
+  /** Narrative-first plan, created before any layout or visual decision. */
+  blueprint?: StoryBlueprint;
+  creativeDirection?: CreativeDirection;
+  motionDirection?: MotionDirection;
+  experienceBuild?: ExperienceBuild;
+}
+
+export interface ExperienceSectionPlan {
+  section: string;
+  purpose: string;
+  interaction: string | null;
+  assetRole: string | null;
+}
+
+/** Final orchestration plan. The website is intentionally the primary output;
+ * presentation, PPTX and PDF are constrained render targets derived from it. */
+export interface ExperienceBuild {
+  primaryExperience: 'interactive-website';
+  websitePrinciples: string[];
+  sections: ExperienceSectionPlan[];
+  presentationMode: string;
+  powerpoint: string;
+  pdf: string;
+}
+
+export const MOTION_ANIMATIONS = [
+  'fade',
+  'scale',
+  'slide',
+  'blur',
+  'parallax',
+  'mask-reveal',
+  'scroll-reveal',
+  'svg-draw',
+  'knowledge-graph-build',
+  'timeline-build',
+  'counter-animation',
+  'camera-zoom',
+  'image-focus',
+  'mouse-interaction',
+  'card-expansion',
+  'diagram-construction',
+  '3d-motion',
+] as const;
+export type MotionAnimation = (typeof MOTION_ANIMATIONS)[number];
+
+export interface MotionPageDirection {
+  page: string;
+  animation: MotionAnimation;
+  durationMs: number;
+  trigger: string;
+  easing: string;
+  purpose: string;
+}
+
+/** The Motion Director's timing brief. Every motion decision must earn a
+ * narrative purpose; the renderer can safely ignore it when reduced motion is on. */
+export interface MotionDirection {
+  overallPacing: string;
+  pages: MotionPageDirection[];
+}
+
+export const CREATIVE_DIRECTION_MODES = ['investor', 'product-launch', 'editorial'] as const;
+export type CreativeDirectionMode = (typeof CREATIVE_DIRECTION_MODES)[number];
+
+/** The Creative Director's brief. Like the Story Blueprint, it deliberately
+ * stops before slide/layout creation. */
+export interface CreativeDirection {
+  mode: CreativeDirectionMode;
+  reason: string;
+  visualLanguage: string;
+  typographyDirection: string;
+  spacingPhilosophy: string;
+  pacing: string;
+  imageryStyle: string;
+  colorLanguage: string;
+  motionLanguage: string;
+}
+
+export interface StorySection {
+  title: string;
+  why: string;
+  emotion: string;
+  keyTakeaway: string;
+}
+
+export interface StoryAct {
+  title: string;
+  purpose: string;
+  emotion: string;
+  keyTakeaway: string;
+  sections: StorySection[];
+}
+
+/** The Story Architect's output. It deliberately contains no layouts, slides,
+ * animation or visual-direction fields. */
+export interface StoryBlueprint {
+  title: string;
+  vision: string;
+  coreMessage: string;
+  audience: string;
+  desiredEmotion: string;
+  storyArc: string;
+  acts: StoryAct[];
 }
 
 /** A minimum-necessary question asked when critical evidence is missing. Mirrors

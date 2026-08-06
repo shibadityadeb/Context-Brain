@@ -2,15 +2,25 @@ import type { LLMProvider } from '@company-brain/knowledge-engine';
 import type { RetrievalService, RetrievedItem } from '@company-brain/retrieval';
 import {
   buildOutlinePrompt,
+  buildCreativeDirectionPrompt,
+  buildMotionDirectionPrompt,
+  buildExperiencePrompt,
   buildSlidePrompt,
   fallbackOutline,
   getLayout,
   parseOutline,
+  parseCreativeDirection,
+  parseMotionDirection,
+  parseExperienceBuild,
   parseSlideContent,
   type Clarification,
   type EvidenceItem,
   type LayoutId,
   type PresentationIntent,
+  type CreativeDirectionMode,
+  type CreativeDirection,
+  type MotionDirection,
+  type ExperienceBuild,
   type SlideContent,
   type SlideSource,
 } from '@company-brain/studio';
@@ -38,6 +48,7 @@ export interface GenerationOutput {
 
 export interface GenerationOptions {
   themeId?: string;
+  creativeDirection?: CreativeDirectionMode;
   slideCount?: number;
   knownDetails?: Array<{ question: string; value: string }>;
   /** Which clarification round this is (1-based). */
@@ -115,6 +126,19 @@ export class GenerationService {
 
     await report(20, 'Designing the story');
     const outline = await this.planOutline(prompt, evidence, options, allowClarifications);
+    outline.intent.creativeDirection = await this.directCreative(
+      outline.intent.blueprint,
+      options.creativeDirection,
+    );
+    outline.intent.motionDirection = await this.directMotion(
+      outline.intent.blueprint,
+      outline.intent.creativeDirection,
+    );
+    outline.intent.experienceBuild = await this.buildExperience(
+      outline.intent.blueprint,
+      outline.intent.creativeDirection,
+      outline.intent.motionDirection,
+    );
 
     // Never re-ask something already answered; drop those before returning.
     const answered = new Set(
@@ -228,6 +252,73 @@ export class GenerationService {
     }
   }
 
+  private async directCreative(
+    blueprint: PresentationIntent['blueprint'],
+    selectedMode?: CreativeDirectionMode,
+  ): Promise<CreativeDirection> {
+    const fallback: CreativeDirection = {
+      mode: selectedMode ?? 'editorial',
+      reason: 'A clear, considered narrative needs a focused visual system.',
+      visualLanguage: 'Restrained, premium, and narrative-led.',
+      typographyDirection: 'Editorial display headlines with a quiet sans-serif body.',
+      spacingPhilosophy: 'Generous whitespace creates emphasis and pause.',
+      pacing: 'Build tension gradually, then resolve with clarity.',
+      imageryStyle: 'Intentional, art-directed visuals rather than decorative stock.',
+      colorLanguage: 'A disciplined neutral base with one expressive accent.',
+      motionLanguage: 'Purposeful reveals and transitions that reinforce meaning.',
+    };
+    if (!blueprint) return fallback;
+    const { system, prompt } = buildCreativeDirectionPrompt({ blueprint, selectedMode });
+    try {
+      return parseCreativeDirection(await this.deps.llm.complete({ system, prompt }));
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async directMotion(
+    blueprint: PresentationIntent['blueprint'],
+    creativeDirection: PresentationIntent['creativeDirection'],
+  ): Promise<MotionDirection> {
+    const fallback: MotionDirection = {
+      overallPacing: 'Measured, cinematic, and purpose-led.',
+      pages: [],
+    };
+    if (!blueprint || !creativeDirection) return fallback;
+    const { system, prompt } = buildMotionDirectionPrompt({ blueprint, creativeDirection });
+    try {
+      return parseMotionDirection(await this.deps.llm.complete({ system, prompt }));
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async buildExperience(
+    blueprint: PresentationIntent['blueprint'],
+    creativeDirection: PresentationIntent['creativeDirection'],
+    motionDirection: PresentationIntent['motionDirection'],
+  ): Promise<ExperienceBuild> {
+    const fallback: ExperienceBuild = {
+      primaryExperience: 'interactive-website',
+      websitePrinciples: ['Story-led, responsive, and interaction-first.'],
+      sections: [],
+      presentationMode: 'Keyboard navigation, presenter controls, and speaker notes.',
+      powerpoint: 'Editable text and images with reduced animation.',
+      pdf: 'Print-ready layout and typography.',
+    };
+    if (!blueprint || !creativeDirection || !motionDirection) return fallback;
+    const { system, prompt } = buildExperiencePrompt({
+      blueprint,
+      creativeDirection,
+      motionDirection,
+    });
+    try {
+      return parseExperienceBuild(await this.deps.llm.complete({ system, prompt }));
+    } catch {
+      return fallback;
+    }
+  }
+
   private async writeSlide(
     plan: {
       layout: LayoutId;
@@ -247,6 +338,7 @@ export class GenerationService {
       evidence,
       intentTone: intent.tone,
       audience: intent.audience,
+      creativeDirection: intent.creativeDirection,
     });
     try {
       const raw = await this.deps.llm.complete({ system, prompt });

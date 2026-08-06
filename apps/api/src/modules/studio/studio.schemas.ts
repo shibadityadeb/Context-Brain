@@ -29,6 +29,7 @@ export const createPresentationSchema = z.object({
   prompt: z.string().min(3).max(6000),
   /** Optional explicit overrides; otherwise the AI derives them. */
   themeId: z.string().max(40).optional(),
+  creativeDirection: z.enum(['investor', 'product-launch', 'editorial']).optional(),
   slideCount: z.coerce.number().int().min(1).max(40).optional(),
   title: z.string().max(300).optional(),
 });
@@ -46,6 +47,8 @@ export type AnswerPresentationBody = z.infer<typeof answerPresentationSchema>;
 export const updatePresentationSchema = z.object({
   title: z.string().min(1).max(300).optional(),
   themeId: z.string().max(40).optional(),
+  /** Brand mark used by the standalone Story website. */
+  coverAssetId: z.string().uuid().nullable().optional(),
   /** New full ordering of slide ids (drag/reorder). */
   slideOrder: z.array(z.string().uuid()).max(200).optional(),
 });

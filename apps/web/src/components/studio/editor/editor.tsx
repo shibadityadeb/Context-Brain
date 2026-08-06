@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { ArrowLeft, Check, Download, Loader2, Play, Redo2, Undo2 } from 'lucide-react';
+import { ArrowLeft, Check, Download, Loader2, MonitorPlay, Play, Redo2, Undo2 } from 'lucide-react';
 import { THEME_LIST, type ThemeId } from '@company-brain/studio';
 import { cn } from '@company-brain/ui';
 import { studioApi } from '@/lib/api';
@@ -75,6 +75,12 @@ function Topbar() {
         )}
       </span>
 
+      <Link
+        href={`/story/${editor.id}`}
+        className="hidden items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background hover:opacity-90 sm:flex"
+      >
+        <MonitorPlay className="h-3.5 w-3.5" /> Experience
+      </Link>
       <Link
         href={`/studio/${editor.id}/present`}
         className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-accent"

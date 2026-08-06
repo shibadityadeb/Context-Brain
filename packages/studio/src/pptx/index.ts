@@ -80,6 +80,8 @@ export interface PptxOptions {
   resolveAsset?: (assetId: string) => string | undefined;
   /** Deck author shown in file metadata. */
   author?: string;
+  /** Optional brand logo rendered as an independent editable image on slides. */
+  brandLogo?: string;
 }
 
 export function deckToPptx(deck: Deck, options: PptxOptions = {}): PptxInstance {
@@ -113,6 +115,19 @@ function renderSlide(
   const text = hex(theme.colors.text);
   const muted = hex(theme.colors.muted);
   const primary = hex(theme.colors.primary);
+
+  // A brand logo is a separate picture object, not baked into a background, so
+  // it remains movable/replacable in PowerPoint and Keynote.
+  if (options.brandLogo && spec.layout !== 'cover') {
+    slide.addImage({
+      path: options.brandLogo,
+      x: W - 1.28,
+      y: 0.32,
+      w: 0.78,
+      h: 0.36,
+      transparency: 3,
+    });
+  }
 
   // Header (eyebrow + title + subtitle) shared by most layouts.
   const drawHeader = (yStart = MARGIN): number => {
@@ -204,6 +219,15 @@ function renderSlide(
           fontFace: bodyFont,
           fontSize: 20,
           color: bg ? 'EEEEEE' : muted,
+        });
+      if (options.brandLogo)
+        slide.addImage({
+          path: options.brandLogo,
+          x: MARGIN,
+          y: 0.45,
+          w: 1.0,
+          h: 0.46,
+          transparency: 3,
         });
       break;
     }

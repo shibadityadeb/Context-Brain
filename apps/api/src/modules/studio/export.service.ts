@@ -72,6 +72,7 @@ export class ExportService {
     const pptx = deckToPptx(deck, {
       author: author ?? 'Company Brain Studio',
       resolveAsset: (assetId) => assetUrls.get(assetId),
+      brandLogo: presentation.coverAssetId ? assetUrls.get(presentation.coverAssetId) : undefined,
     });
     const buffer = (await pptx.write({ outputType: 'nodebuffer' })) as Buffer;
     return { buffer, fileName: safeFileName(presentation.title) };

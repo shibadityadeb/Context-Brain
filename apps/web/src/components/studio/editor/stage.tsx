@@ -51,6 +51,42 @@ export function Stage() {
         )}
       </div>
 
+      {/* Brand assets uploaded at creation are a real library, not just files in
+       * storage. Selecting one places it in this slide's editable image slot,
+       * which the PPTX exporter embeds as a native editable picture. */}
+      {editor.detail.assets.some((asset) => asset.mimeType.startsWith('image/') && asset.url) && (
+        <div className="flex items-center gap-2 overflow-x-auto border-b px-4 py-2">
+          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Brand assets
+          </span>
+          {editor.detail.assets
+            .filter((asset) => asset.mimeType.startsWith('image/') && asset.url)
+            .map((asset) => (
+              <button
+                key={asset.id}
+                type="button"
+                title="Place on this slide"
+                onClick={() =>
+                  editor.patchActiveContent({
+                    ...active.content,
+                    images: [{ assetId: asset.id, alt: asset.caption ?? 'Brand asset' }],
+                  })
+                }
+                className="h-9 w-14 shrink-0 overflow-hidden rounded border bg-muted hover:ring-2 hover:ring-ai/50"
+              >
+                <img src={asset.url as string} alt="" className="h-full w-full object-cover" />
+              </button>
+            ))}
+          <button
+            type="button"
+            onClick={onPickImage}
+            className="shrink-0 rounded border px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Upload image
+          </button>
+        </div>
+      )}
+
       {/* Canvas */}
       <div
         className="flex flex-1 items-center justify-center overflow-auto bg-muted/30 p-8"

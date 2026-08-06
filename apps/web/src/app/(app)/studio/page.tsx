@@ -41,8 +41,8 @@ export default function StudioHomePage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-1 py-2">
       <PageHeader
-        title="Studio"
-        description="Generate beautiful, presentation-ready decks from everything Company Brain knows — then edit and export without leaving."
+        title="Storytelling Engine"
+        description="Turn Company Brain into directed stories — interactive experiences, meeting-ready presentations, and polished exports."
       />
 
       <PromptBox />

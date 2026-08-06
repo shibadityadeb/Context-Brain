@@ -7,7 +7,12 @@ import {
   ScopedRetrievalService,
   type RetrievalService,
 } from '@company-brain/retrieval';
-import { getLayout, getTheme, type SlideContent } from '@company-brain/studio';
+import {
+  getLayout,
+  getTheme,
+  type CreativeDirectionMode,
+  type SlideContent,
+} from '@company-brain/studio';
 import { config } from '../../config/index.js';
 import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
 import type { StorageService } from '../../services/storage.service.js';
@@ -159,6 +164,7 @@ export class StudioService {
     // as a pure engine call so it can later move into a Temporal activity as-is.
     void this.runGeneration(presentation.id, organizationId, body.prompt, {
       themeId: body.themeId,
+      creativeDirection: body.creativeDirection,
       slideCount: body.slideCount,
       knownDetails: [],
       attempt: 1,
@@ -213,6 +219,7 @@ export class StudioService {
     prompt: string,
     options: {
       themeId?: string;
+      creativeDirection?: CreativeDirectionMode;
       slideCount?: number;
       knownDetails?: Array<{ question: string; value: string }>;
       attempt?: number;
@@ -329,6 +336,16 @@ export class StudioService {
     const data: Prisma.StudioPresentationUpdateInput = {};
     if (body.title !== undefined) data.title = body.title;
     if (body.themeId !== undefined) data.themeId = getTheme(body.themeId).id;
+    if (body.coverAssetId !== undefined) {
+      if (body.coverAssetId) {
+        const asset = await this.deps.prisma.studioAsset.findFirst({
+          where: { id: body.coverAssetId, presentationId: id, organizationId },
+          select: { id: true },
+        });
+        if (!asset) throw new NotFoundError('Brand asset not found in this story');
+      }
+      data.coverAssetId = body.coverAssetId;
+    }
     if (Object.keys(data).length) {
       ops.push(this.deps.prisma.studioPresentation.update({ where: { id }, data }));
     }

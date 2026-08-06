@@ -160,6 +160,137 @@ function Hero(props: LayoutProps) {
   );
 }
 
+function Statement(props: LayoutProps) {
+  return (
+    <Pad className="relative items-center justify-center overflow-hidden text-center">
+      <div
+        className="absolute left-[12%] top-[16%] h-32 w-32 rounded-full opacity-20 blur-3xl"
+        style={{ background: 'var(--studio-accent)' }}
+      />
+      <div style={primary}>
+        <Eyebrow {...props} />
+      </div>
+      <Title {...props} className="relative max-w-[88%] text-[4.4em]" />
+      <div style={muted}>
+        <Subtitle {...props} className="mt-7 max-w-[65%] text-[1.25em]" />
+      </div>
+    </Pad>
+  );
+}
+
+function Pause(props: LayoutProps) {
+  return (
+    <Pad className="items-center justify-center text-center">
+      <Title {...props} className="max-w-[80%] text-[5em] font-medium" />
+      <div className="mt-10 h-px w-16" style={{ background: 'var(--studio-primary)' }} />
+      <div style={muted}>
+        <Subtitle {...props} className="mt-7 text-[1.1em]" />
+      </div>
+    </Pad>
+  );
+}
+
+function Chapter(props: LayoutProps) {
+  return (
+    <Pad className="justify-end pb-[12%]">
+      <div className="mb-7 flex items-center gap-3" style={primary}>
+        <span className="h-px w-12" style={{ background: 'currentColor' }} />
+        <Eyebrow {...props} />
+      </div>
+      <Title {...props} className="max-w-[75%] text-[4.2em]" />
+      <div style={muted}>
+        <Subtitle {...props} className="mt-5 max-w-[55%] text-[1.2em]" />
+      </div>
+    </Pad>
+  );
+}
+
+function Spotlight(props: LayoutProps) {
+  const image = props.resolveImage(props.content.images?.[0]);
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      {image ? (
+        <EditableImage
+          url={image}
+          editable={props.editable}
+          onReplace={() => props.onReplaceImage?.(0)}
+          rounded={false}
+        />
+      ) : (
+        <div className="absolute inset-0" style={{ background: 'var(--studio-surface)' }} />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
+      <div className="absolute inset-x-[8%] bottom-[10%] text-white">
+        <Eyebrow {...props} />
+        <Title {...props} className="mt-3 max-w-[75%] text-[3.6em]" />
+        <Subtitle {...props} className="mt-4 max-w-[55%] text-[1.15em] text-white/75" />
+      </div>
+    </div>
+  );
+}
+
+function Journey(props: LayoutProps) {
+  const steps = props.content.timeline ?? [];
+  return (
+    <Pad>
+      <Header {...props} />
+      <div className="relative mt-auto grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div
+          className="absolute left-4 right-4 top-5 hidden h-px md:block"
+          style={{ background: 'var(--studio-border)' }}
+        />
+        {steps.map((step, i) => (
+          <div key={i} className="relative">
+            <span
+              className="mb-5 grid h-10 w-10 place-items-center rounded-full text-sm font-semibold"
+              style={{ background: 'var(--studio-primary)', color: 'var(--studio-on-primary)' }}
+            >
+              {step.marker ?? String(i + 1).padStart(2, '0')}
+            </span>
+            <div className="text-[1.35em] font-semibold">{step.title}</div>
+            {step.description && (
+              <p className="mt-2 text-[1em] leading-snug" style={muted}>
+                {step.description}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </Pad>
+  );
+}
+
+function Flow(props: LayoutProps) {
+  const nodes = props.content.columns ?? [];
+  return (
+    <Pad>
+      <Header {...props} />
+      <div className="mt-auto flex items-stretch gap-3">
+        {nodes.map((node, i) => (
+          <div key={i} className="flex min-w-0 flex-1 items-center gap-3">
+            <div
+              className="flex min-h-36 flex-1 flex-col justify-center border p-4"
+              style={cardStyle}
+            >
+              <div className="text-[1.2em] font-semibold">{node.heading}</div>
+              {node.body && (
+                <p className="mt-2 text-[.95em]" style={muted}>
+                  {node.body}
+                </p>
+              )}
+            </div>
+            {i < nodes.length - 1 && (
+              <span className="text-xl" style={primary}>
+                →
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </Pad>
+  );
+}
+
 function BulletList(props: LayoutProps) {
   const { content, editable, onPatch } = props;
   const bullets = content.bullets ?? [];
@@ -758,6 +889,12 @@ function Conclusion(props: LayoutProps) {
 export const LAYOUT_COMPONENTS: Record<LayoutId, (props: LayoutProps) => ReactNode> = {
   cover: Cover,
   hero: Hero,
+  statement: Statement,
+  pause: Pause,
+  chapter: Chapter,
+  spotlight: Spotlight,
+  journey: Journey,
+  flow: Flow,
   'two-column': (p) => <Columns {...p} count={2} />,
   'three-column': (p) => <Columns {...p} count={3} />,
   'image-left': (p) => <ImageSide {...p} side="left" />,
