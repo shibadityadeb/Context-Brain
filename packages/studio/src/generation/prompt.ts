@@ -11,11 +11,11 @@
  */
 
 import type { LayoutSpec } from '../layouts.js';
-import type { SlidePlan } from '../types.js';
 import type {
   CreativeDirection,
   CreativeDirectionMode,
   MotionDirection,
+  SlidePlan,
   StoryBlueprint,
 } from '../types.js';
 
@@ -120,7 +120,7 @@ export function buildSlidePrompt(input: {
   evidence: EvidenceItem[];
   intentTone: string;
   audience: string;
-  creativeDirection?: import('../types.js').CreativeDirection;
+  creativeDirection?: CreativeDirection;
 }): { system: string; prompt: string } {
   const investorDoctrine =
     input.creativeDirection?.mode === 'investor'
