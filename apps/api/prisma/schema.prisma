@@ -29,11 +29,11 @@ model User {
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
 
-  memberships       Membership[]
-  sessions          Session[]
-  auditLogs         AuditLog[]
-  apiKeys           APIKey[]
-  pendingOAuthGrant PendingOAuthGrant?
+  memberships        Membership[]
+  sessions           Session[]
+  auditLogs          AuditLog[]
+  apiKeys            APIKey[]
+  pendingOAuthGrant  PendingOAuthGrant?
   llmProviderSetting LlmProviderSetting?
 
   folders          Folder[]
@@ -47,6 +47,8 @@ model User {
 
   actions         Action[] @relation("ActionCreator")
   approvedActions Action[] @relation("ActionApprover")
+
+  studioPresentations StudioPresentation[] @relation("StudioCreator")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -88,6 +90,8 @@ model Organization {
 
   conversations Conversation[]
   actions       Action[]
+
+  studioPresentations StudioPresentation[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -181,8 +185,8 @@ model Invitation {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   email           String
-  roleId          String @db.Uuid
-  role            Role   @relation(fields: [roleId], references: [id])
+  roleId          String  @db.Uuid
+  role            Role    @relation(fields: [roleId], references: [id])
   invitedByUserId String? @db.Uuid
 
   token     String           @unique
@@ -348,7 +352,7 @@ model McpServer {
   scopeConfig Json @default("{\"mode\":\"workspace\"}")
 
   // Enabled tool names (subset of the server's tool catalog).
-  tools String[]
+  tools  String[]
   // Optional system prompt surfaced to connecting clients.
   prompt String?
 
@@ -2369,7 +2373,7 @@ model RecallMeeting {
   recallBotId String @unique
 
   // Set from the Recall bot `metadata` we attach at creation time.
-  organizationId String? @db.Uuid
+  organizationId    String? @db.Uuid
   // Our own upstream meeting id (e.g. calendar-derived), when provided.
   externalMeetingId String?
 
@@ -2442,8 +2446,8 @@ model Recording {
   recallRecordingId String          @unique
   status            RecordingStatus @default(PENDING)
 
-  startedAt   DateTime?
-  completedAt DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
   // Signed media URL + when it expires (Recall URLs are short-lived).
   mediaUrl        String?
   mediaExpiresAt  DateTime?
@@ -2475,10 +2479,10 @@ model RecallTranscript {
 
   // Whole-transcript conveniences kept in sync on merge, so readers never
   // have to re-assemble segments.
-  mergedText  String? @db.Text
-  segmentCount Int    @default(0)
+  mergedText   String? @db.Text
+  segmentCount Int     @default(0)
   // Total speech span in milliseconds (last endMs − first startMs).
-  durationMs  Int?
+  durationMs   Int?
 
   // The untouched Recall transcript JSON, preserved alongside the normalized form.
   rawPayload Json?
@@ -2723,7 +2727,7 @@ model Action {
   creator        User         @relation("ActionCreator", fields: [createdBy], references: [id], onDelete: Cascade)
 
   // What the user asked for (verbatim) and a short generated title.
-  request String     @db.Text
+  request String       @db.Text
   title   String
   type    ActionType   @default(OTHER)
   status  ActionStatus @default(PLANNING)
@@ -2744,8 +2748,8 @@ model Action {
   // [{ field, question, hint? }]. Cleared once answered + re-planned.
   clarifications Json?
   // Structured final result once executed.
-  result Json?
-  error  String? @db.Text
+  result         Json?
+  error          String? @db.Text
 
   // Links back into the Context Brain so retrieval can answer questions like
   // "what happened after yesterday's meeting?".
@@ -2775,23 +2779,23 @@ model ActionStep {
   actionId String @db.Uuid
   action   Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
 
-  index       Int
-  title       String
-  description String? @db.Text
+  index            Int
+  title            String
+  description      String? @db.Text
   // The OpenClaw tool this step is expected to use (an estimate; the adapter
   // maps it to a concrete capability at execution time).
-  tool String?
+  tool             String?
   // Concrete, editable parameters the tool executes with — e.g. email.send:
   // { to, subject, body }; calendar.write: { title, start, end, attendees };
   // task.create: { title, priority, due }. The user reviews/edits these in the
   // approval preview before anything runs, so real side effects are confirmed.
-  params Json?
+  params           Json?
   // A step that pauses for its own approval checkpoint (e.g. "send the email").
   requiresApproval Boolean @default(false)
 
   status ActionStepStatus @default(PENDING)
   output Json?
-  error  String? @db.Text
+  error  String?          @db.Text
 
   organizationId String @db.Uuid
 
@@ -2810,11 +2814,11 @@ model ActionStep {
 model ActionLog {
   id String @id @default(uuid()) @db.Uuid
 
-  actionId String @db.Uuid
-  action   Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  actionId String      @db.Uuid
+  action   Action      @relation(fields: [actionId], references: [id], onDelete: Cascade)
   // Optional step association — null for action-level lifecycle logs.
-  stepId String?     @db.Uuid
-  step   ActionStep? @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  stepId   String?     @db.Uuid
+  step     ActionStep? @relation(fields: [stepId], references: [id], onDelete: Cascade)
 
   level   ActionLogLevel @default(INFO)
   message String         @db.Text
@@ -2859,7 +2863,7 @@ model GovernanceProfile {
   normalizedName  String
 
   // The structured ProductProfile (see @company-brain/governance).
-  profile Json
+  profile    Json
   // Last full assessment snapshot: applicable laws, requirements, gaps,
   // missingInfo, scores, launchBlockers, recommendedActions.
   assessment Json?
@@ -2912,4 +2916,156 @@ model GovernanceDocument {
   @@index([organizationId, profileId])
   @@index([profileId, type])
   @@map("governance_documents")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Company Brain Studio — AI presentation artifacts.
+// A presentation is a deck of slides, each an independently-addressable row
+// (the copilot/reorder target). Layout + theme are validated STRINGS (against
+// the registries in @company-brain/studio), never DB enums, so new layouts and
+// themes ship without a migration. Mirrors the Action/Document conventions:
+// org-scoped, creator-owned, soft-deleted, timestamped.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum StudioStatus {
+  GENERATING
+  READY
+  FAILED
+  DRAFT
+  ARCHIVED
+}
+
+enum StudioAssetSource {
+  UPLOAD
+  BRAIN
+  GENERATED
+}
+
+model StudioPresentation {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdBy String @db.Uuid
+  creator   User   @relation("StudioCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  title   String
+  // The verbatim user prompt that seeded the deck.
+  prompt  String @db.Text
+  // A theme id from the Studio theme registry (e.g. "modern").
+  themeId String @default("modern")
+
+  status StudioStatus @default(GENERATING)
+
+  // Derived understanding of the request: { documentType, audience, purpose,
+  // tone, slideCount }. Persisted so regeneration/copilot stay on-brief.
+  intent              Json?
+  // Minimum-necessary questions raised when critical evidence was missing.
+  clarifications      Json?
+  // Accumulated answers to clarifications across rounds: [{ question, value }].
+  knownDetails        Json?
+  // How many clarification rounds have run; after the cap the deck generates.
+  clarificationRounds Int   @default(0)
+  // Summary of the Company Brain evidence the deck was generated from.
+  sourceRefs          Json?
+
+  // Optional cover image (a StudioAsset id).
+  coverAssetId String? @db.Uuid
+
+  // Progress marker for the async generation workflow (0..100), surfaced in the
+  // "watch it build" UI; null once READY.
+  generationProgress Int?
+  generationError    String? @db.Text
+
+  currentVersion Int @default(1)
+
+  slides   StudioSlide[]
+  assets   StudioAsset[]
+  versions StudioVersion[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([organizationId, status])
+  @@index([createdBy])
+  @@map("studio_presentations")
+}
+
+model StudioSlide {
+  id String @id @default(uuid()) @db.Uuid
+
+  presentationId String             @db.Uuid
+  presentation   StudioPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+
+  organizationId String @db.Uuid
+
+  // 0-based position within the deck.
+  index      Int
+  // A layout id from the Studio layout registry (e.g. "metrics").
+  layout     String
+  // The SlideContent for this layout (title, bullets, metrics, images, …).
+  content    Json
+  // Speaker notes.
+  notes      String? @db.Text
+  // Per-slide provenance: [{ id, kind, type, title }] backing the claims.
+  sources    Json?
+  // 0..1 confidence in how well evidence supported this slide.
+  confidence Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([presentationId, index])
+  @@index([presentationId])
+  @@map("studio_slides")
+}
+
+model StudioAsset {
+  id String @id @default(uuid()) @db.Uuid
+
+  presentationId String?             @db.Uuid
+  presentation   StudioPresentation? @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+
+  organizationId String @db.Uuid
+
+  storageBucket String
+  storageKey    String
+  mimeType      String
+  fileSizeBytes Int?
+  width         Int?
+  height        Int?
+  caption       String?
+  source        StudioAssetSource @default(UPLOAD)
+
+  createdBy String?  @db.Uuid
+  createdAt DateTime @default(now())
+
+  @@index([presentationId])
+  @@index([organizationId])
+  @@map("studio_assets")
+}
+
+// Full-deck snapshots. Scaffolded now (autosave keeps current state); the
+// version-history / restore / branch UI lands in Phase 2. Mirrors KnowledgeVersion.
+model StudioVersion {
+  id String @id @default(uuid()) @db.Uuid
+
+  presentationId String             @db.Uuid
+  presentation   StudioPresentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+
+  organizationId String @db.Uuid
+
+  version    Int
+  // Full deck snapshot { title, themeId, slides:[...] }.
+  snapshot   Json
+  changeType String  @default("edit")
+  changedBy  String? @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  @@unique([presentationId, version])
+  @@index([presentationId])
+  @@map("studio_versions")
 }

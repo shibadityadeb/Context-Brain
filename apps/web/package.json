@@ -11,6 +11,7 @@
     "test": "echo 'no tests' && exit 0"
   },
   "dependencies": {
+    "@company-brain/studio": "workspace:*",
     "@company-brain/types": "workspace:*",
     "@company-brain/ui": "workspace:*",
     "@dnd-kit/core": "^6.3.1",

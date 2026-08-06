@@ -77,6 +77,9 @@ export const config = {
   uploads: {
     maxFileSizeBytes: env.UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024,
   },
+  studio: {
+    maxClarificationRounds: env.STUDIO_MAX_CLARIFICATION_ROUNDS,
+  },
   // Conversational answers (Ask Brain). Reuses the extraction provider/key
   // by default so one LLM configuration powers the whole brain.
   llm: (() => {
