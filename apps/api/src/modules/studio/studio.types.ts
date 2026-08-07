@@ -41,10 +41,16 @@ export interface AssetView {
   height: number | null;
 }
 
+/** Where opening a story takes you. Every output is always produced; this is
+ *  purely about which surface it was built for. */
+export type StorySurface = 'web' | 'slides';
+
 export interface PresentationSummary {
   id: string;
   title: string;
   themeId: ThemeId;
+  /** On the summary because the deck list needs it to link correctly. */
+  primarySurface: StorySurface;
   status: StudioPresentation['status'];
   slideCount: number;
   createdBy: string;
@@ -95,6 +101,7 @@ export function toSummary(p: PresentationWithDetail): PresentationSummary {
     id: p.id,
     title: p.title,
     themeId: coerceTheme(p.themeId),
+    primarySurface: p.primarySurface === 'slides' ? 'slides' : 'web',
     status: p.status,
     slideCount: p.slides.length,
     createdBy: p.createdBy,

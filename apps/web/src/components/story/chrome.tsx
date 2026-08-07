@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useScroll, useSpring } from 'framer-motion';
 import { useEffect, useState } from 'react';
-import { Check, Download, Link2, Loader2, Play, X } from 'lucide-react';
+import { Check, Download, Link2, Loader2, Play, SlidersHorizontal, X } from 'lucide-react';
 import type { ArtDirection, StoryScene } from '@company-brain/studio';
 import { BrandMark } from './brand-mark';
 import { useReducedMotionSafe } from './lib/motion';
@@ -102,9 +102,9 @@ export function useActiveScene(scenes: StoryScene[]): number {
 
 export interface DeliveryLinks {
   presentHref: string;
-  pptxHref: string;
-  pdfHref: string;
-  sourceHref: string;
+  /** The slide editor for this same story — the other surface is always one
+   *  click away, whichever one you built for. */
+  editHref: string;
 }
 
 export function StoryHeader({
@@ -152,6 +152,14 @@ export function StoryHeader({
           {copied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
           <span className="hidden sm:inline">{copied ? 'Copied' : 'Share'}</span>
         </button>
+
+        <a
+          href={links.editHref}
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.72rem] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Edit</span>
+        </a>
 
         <a
           href={links.presentHref}

@@ -162,6 +162,7 @@ export class StudioService {
         prompt: body.prompt,
         themeId: body.themeId ?? 'modern',
         paletteId: body.paletteId ?? null,
+        primarySurface: body.surface ?? 'web',
         status: 'GENERATING',
         generationProgress: 0,
       },
@@ -444,6 +445,7 @@ export class StudioService {
       }
       data.coverAssetId = body.coverAssetId;
     }
+    if (body.surface !== undefined) data.primarySurface = body.surface;
     if (body.paletteId !== undefined) {
       // Re-art-direct in place. Palettes are pure tokens, so switching one is a
       // instant restyle of the website, presenter and exports — no regeneration.

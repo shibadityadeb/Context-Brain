@@ -108,9 +108,7 @@ export function StoryExperience({ detail }: { detail: StudioDetail }) {
         onDownload={(kind) => void download(kind)}
         links={{
           presentHref: `/studio/${detail.id}/present`,
-          pptxHref: '#',
-          pdfHref: '#',
-          sourceHref: '#',
+          editHref: `/studio/${detail.id}`,
         }}
       />
       <SceneRail scenes={scenes} active={active} />

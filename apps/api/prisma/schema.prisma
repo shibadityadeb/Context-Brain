@@ -2983,6 +2983,12 @@ model StudioPresentation {
   // Director's own choice.
   paletteId String?
 
+  // Which surface this story was BUILT for — "web" (the interactive site) or
+  // "slides" (the 16:9 deck). Every output is always produced; this only decides
+  // where opening it takes you, so a story made as a website never reopens as a
+  // slide editor. Defaults to web: the site is the primary experience.
+  primarySurface String @default("web")
+
   // Optional cover image (a StudioAsset id).
   coverAssetId String? @db.Uuid
 

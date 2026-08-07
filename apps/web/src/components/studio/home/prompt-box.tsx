@@ -2,8 +2,18 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, ImagePlus, Loader2, Plus, Sparkles, Upload, X } from 'lucide-react';
-import { studioApi } from '@/lib/api';
+import {
+  ArrowRight,
+  ImagePlus,
+  Loader2,
+  MonitorPlay,
+  Plus,
+  Presentation,
+  Sparkles,
+  Upload,
+  X,
+} from 'lucide-react';
+import { storyHref, studioApi } from '@/lib/api';
 
 const STARTERS = [
   'Tell the story of our Series A: conviction, traction, and the market we are here to change.',
@@ -13,11 +23,32 @@ const STARTERS = [
 ];
 
 /**
- * Narrative register. This replaced an "choose your output" selector, which was
- * quietly misleading: the engine always produces the website, the presenter, the
- * PowerPoint and the PDF. Asking which one you wanted implied a choice that
- * didn't exist, and hid the choice that actually changes the work — the register
- * the story is told in.
+ * Which surface you're building for.
+ *
+ * Every output is always produced — website, presenter, PPTX, PDF, source. This
+ * choice decides what the story IS, and therefore where opening it later takes
+ * you. Without it a story created as a website reopens in the slide editor,
+ * which quietly throws away the intent behind it.
+ */
+const SURFACES = [
+  {
+    id: 'web',
+    label: 'Website',
+    note: 'Cinematic, scroll-led',
+    icon: MonitorPlay,
+  },
+  {
+    id: 'slides',
+    label: 'Slides',
+    note: '16:9 deck for a room',
+    icon: Presentation,
+  },
+] as const;
+
+type SurfaceId = (typeof SURFACES)[number]['id'];
+
+/**
+ * Narrative register — the other choice that genuinely changes the work.
  */
 const DIRECTIONS = [
   {
@@ -44,6 +75,7 @@ export function PromptBox() {
   const router = useRouter();
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [surface, setSurface] = useState<SurfaceId>('web');
   const [direction, setDirection] = useState<DirectionId | null>(null);
   const [logo, setLogo] = useState<File | null>(null);
   const [images, setImages] = useState<File[]>([]);
@@ -59,6 +91,7 @@ export function PromptBox() {
     try {
       const story = await studioApi.create({
         prompt: text.trim(),
+        surface,
         ...(direction ? { creativeDirection: direction } : {}),
       });
 
@@ -71,9 +104,9 @@ export function PromptBox() {
       );
       if (logo && uploaded[0]) await studioApi.update(story.id, { coverAssetId: uploaded[0].id });
 
-      // Always the story URL: it carries the build, any questions, and the
-      // finished site, so the link is shareable from the moment it exists.
-      router.push(`/story/${story.id}`);
+      // Land on the surface this was built for — the same route the deck card
+      // will use later, so creating and reopening always agree.
+      router.push(storyHref(story));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start the story. Try again.');
       setBusy(false);
@@ -237,6 +270,37 @@ export function PromptBox() {
       </div>
 
       <div className="mt-4">
+        <p className="mb-2 text-[11px] font-medium text-muted-foreground">Build as</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {SURFACES.map((item) => {
+            const Icon = item.icon;
+            const selected = surface === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSurface(item.id)}
+                className={`flex items-start gap-2.5 rounded-xl border p-3 text-left transition ${
+                  selected ? 'border-ai bg-ai/5 ring-1 ring-ai/20' : 'hover:border-ai/40'
+                }`}
+              >
+                <Icon
+                  className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? 'text-ai' : 'text-muted-foreground'}`}
+                />
+                <span>
+                  <span className="block text-xs font-semibold">{item.label}</span>
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    {item.note}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4">
         <p className="mb-2 text-[11px] font-medium text-muted-foreground">
           Register <span className="font-normal">— optional; the director decides otherwise</span>
         </p>
@@ -262,8 +326,9 @@ export function PromptBox() {
       </div>
 
       <p className="mt-4 text-[11px] text-muted-foreground">
-        Every story ships as an interactive website, a presenter, an editable PowerPoint, a
-        print-ready PDF, and its own source code.
+        Whichever you pick, every story still ships as an interactive website, a presenter, an
+        editable PowerPoint, a print-ready PDF, and its own source code — this only sets which one
+        it opens in.
       </p>
 
       {error && <p className="mt-3 text-[11px] text-destructive">{error}</p>}

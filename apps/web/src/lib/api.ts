@@ -2731,10 +2731,19 @@ export interface StudioAssetView {
   height: number | null;
 }
 
+/** Which surface a story was built for. Every output is always produced; this
+ *  only decides where opening it takes you. */
+export type StorySurface = 'web' | 'slides';
+
+/** The route that opens a story on the surface it was built for. */
+export const storyHref = (deck: { id: string; primarySurface?: StorySurface }): string =>
+  deck.primarySurface === 'slides' ? `/studio/${deck.id}` : `/story/${deck.id}`;
+
 export interface StudioSummary {
   id: string;
   title: string;
   themeId: StudioThemeId;
+  primarySurface: StorySurface;
   status: StudioStatus;
   slideCount: number;
   createdBy: string;
@@ -2807,6 +2816,8 @@ export const studioApi = {
     creativeDirection?: 'investor' | 'product-launch' | 'editorial';
     /** Art-direction palette; omitted lets the Creative Director choose. */
     paletteId?: string;
+    /** Which surface to build for. Every output is produced regardless. */
+    surface?: StorySurface;
     sceneCount?: number;
     slideCount?: number;
     title?: string;
@@ -2832,6 +2843,8 @@ export const studioApi = {
       coverAssetId?: string | null;
       /** Re-art-directs the whole story instantly — no regeneration. */
       paletteId?: string | null;
+      /** Change which surface this story opens in. */
+      surface?: StorySurface;
       slideOrder?: string[];
     },
   ): Promise<StudioDetail> {

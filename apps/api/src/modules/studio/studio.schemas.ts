@@ -36,6 +36,9 @@ export const createPresentationSchema = z.object({
   slideCount: z.coerce.number().int().min(1).max(40).optional(),
   /** Explicit art-direction palette; omitted lets the Creative Director choose. */
   paletteId: z.string().max(40).optional(),
+  /** Which surface this story is built for. Every output is still produced —
+   *  this only decides where opening the story takes you later. */
+  surface: z.enum(['web', 'slides']).optional(),
   title: z.string().max(300).optional(),
 });
 export type CreatePresentationBody = z.infer<typeof createPresentationSchema>;
@@ -56,6 +59,8 @@ export const updatePresentationSchema = z.object({
   coverAssetId: z.string().uuid().nullable().optional(),
   /** Re-art-direct the whole story to a different palette, live. */
   paletteId: z.string().max(40).nullable().optional(),
+  /** Change which surface this story opens in. */
+  surface: z.enum(['web', 'slides']).optional(),
   /** New full ordering of slide ids (drag/reorder). */
   slideOrder: z.array(z.string().uuid()).max(200).optional(),
 });

@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { Trash2 } from 'lucide-react';
+import { MonitorPlay, Presentation, Trash2 } from 'lucide-react';
 import { getTheme } from '@company-brain/studio';
 import { Badge } from '@/components/ui/primitives';
-import type { StudioSummary } from '@/lib/api';
+import { storyHref, type StudioSummary } from '@/lib/api';
 
 const STATUS_TONE: Record<
   StudioSummary['status'],
@@ -35,10 +35,14 @@ export function DeckCard({
   onDelete: (id: string) => void;
 }) {
   const theme = getTheme(deck.themeId);
+  const isWeb = deck.primarySurface !== 'slides';
   return (
     <div className="group relative">
+      {/* Open on the surface the story was BUILT for. Sending every card to the
+          slide editor makes a story you created as a website reopen as a deck,
+          which silently loses the intent behind it. */}
       <Link
-        href={`/studio/${deck.id}`}
+        href={storyHref(deck)}
         className="block overflow-hidden rounded-xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-lg"
       >
         {/* Themed cover strip */}
@@ -54,8 +58,16 @@ export function DeckCard({
         </div>
         <div className="flex items-center justify-between px-4 py-3">
           <div className="min-w-0">
-            <p className="truncate text-xs text-muted-foreground">
-              {deck.slideCount} slide{deck.slideCount === 1 ? '' : 's'} · {theme.name}
+            <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+              {/* Say which surface this opens on, so the destination is never a
+                  surprise when you click. */}
+              {isWeb ? (
+                <MonitorPlay className="h-3 w-3 shrink-0 text-ai" />
+              ) : (
+                <Presentation className="h-3 w-3 shrink-0 text-ai" />
+              )}
+              {isWeb ? 'Website' : 'Slides'} · {deck.slideCount} {isWeb ? 'scene' : 'slide'}
+              {deck.slideCount === 1 ? '' : 's'}
             </p>
             <p className="text-[11px] text-muted-foreground/70">
               {deck.creatorName ? `${deck.creatorName} · ` : ''}
