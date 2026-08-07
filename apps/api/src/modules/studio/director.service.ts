@@ -54,6 +54,10 @@ export class DirectorService {
     instruction: string;
     /** Uploaded images the director may place, with where each already sits. */
     images?: Array<{ id: string; caption: string | null }>;
+    /** Reference screenshots for the model to LOOK at — never placeable. Passed
+     *  to the provider when it supports vision; described in text regardless,
+     *  so a text-only provider still behaves sanely. */
+    references?: Array<{ bytes: Uint8Array; mimeType: string }>;
     newSceneId: () => string;
   }): Promise<DirectionOutcome> {
     let evidence: RetrievedItem[] = [];
@@ -85,6 +89,7 @@ export class DirectorService {
         caption: image.caption,
         placedOn: placement.get(image.id) ?? null,
       })),
+      referenceCount: input.references?.length ?? 0,
       evidence: evidence.map((item) => ({
         id: item.id,
         kind: item.kind,
@@ -94,7 +99,11 @@ export class DirectorService {
       })),
     });
 
-    const raw = await this.deps.llm.complete({ system, prompt });
+    const raw = await this.deps.llm.complete({
+      system,
+      prompt,
+      ...(input.references?.length ? { images: input.references } : {}),
+    });
     const direction = parseDirection(raw, input.story.scenes.length);
 
     if (direction.refusal && !direction.operations.length) {

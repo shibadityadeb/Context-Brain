@@ -17,12 +17,16 @@ const config: CodexConfig = {
 };
 
 /** Runner stub that returns queued stdout values (or throws queued errors). */
-function stubRunner(outputs: Array<string | Error>): CommandRunner & { calls: number } {
+function stubRunner(
+  outputs: Array<string | Error>,
+): CommandRunner & { calls: number; lastOptions: unknown } {
   const runner = {
     calls: 0,
-    run(): Promise<RunResult> {
+    lastOptions: undefined as unknown,
+    run(_prompt: string, options?: unknown): Promise<RunResult> {
       const next = outputs[runner.calls] ?? outputs[outputs.length - 1];
       runner.calls += 1;
+      runner.lastOptions = options;
       if (next instanceof Error) return Promise.reject(next);
       return Promise.resolve({
         stdout: next as string,
@@ -41,6 +45,25 @@ describe('CodexProvider.generate', () => {
   it('returns trimmed stdout', async () => {
     const provider = new CodexProvider(config, deps(stubRunner(['  hello world  '])));
     expect(await provider.generate('hi')).toBe('hello world');
+  });
+
+  it('passes image attachments to the CLI as -i args', async () => {
+    const runner = stubRunner(['ok']);
+    const provider = new CodexProvider(config, deps(runner));
+    await provider.generate('describe', { imagePaths: ['/tmp/a.png', '/tmp/b.jpg'] });
+    expect((runner.lastOptions as { extraArgs?: string[] }).extraArgs).toEqual([
+      '-i',
+      '/tmp/a.png',
+      '-i',
+      '/tmp/b.jpg',
+    ]);
+  });
+
+  it('adds no extra args when there are no images', async () => {
+    const runner = stubRunner(['ok']);
+    const provider = new CodexProvider(config, deps(runner));
+    await provider.generate('plain');
+    expect((runner.lastOptions as { extraArgs?: string[] }).extraArgs).toBeUndefined();
   });
 
   it('retries on retryable errors, then succeeds', async () => {

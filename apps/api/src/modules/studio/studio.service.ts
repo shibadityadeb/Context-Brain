@@ -411,13 +411,22 @@ export class StudioService {
   ): Promise<StoryExperience> {
     const presentation = await this.deps.prisma.studioPresentation.findUnique({
       where: { id: presentationId },
-      select: { coverAssetId: true, assets: { select: { id: true, mimeType: true } } },
+      select: {
+        coverAssetId: true,
+        assets: { select: { id: true, mimeType: true, source: true } },
+      },
     });
 
     // The cover asset is the brand logo — it belongs to the chrome (header,
-    // intro, watermark, footer), never dropped into a scene as content.
+    // intro, watermark, footer), never dropped into a scene as content. And
+    // REFERENCE assets are annotations for the AI, never content at all.
     const imageIds = (presentation?.assets ?? [])
-      .filter((a) => a.mimeType.startsWith('image/') && a.id !== presentation?.coverAssetId)
+      .filter(
+        (a) =>
+          a.mimeType.startsWith('image/') &&
+          a.id !== presentation?.coverAssetId &&
+          a.source !== 'REFERENCE',
+      )
       .map((a) => a.id);
 
     const identified = story.scenes.map((scene) => ({ ...scene, id: randomUUID() }));
@@ -651,13 +660,42 @@ export class StudioService {
       throw new BadRequestError('This story has no scenes to revise yet');
     }
 
+    // Reference screenshots attached to THIS instruction: loaded as bytes for
+    // the model to look at. Restricted to REFERENCE-role assets of this story,
+    // so a content image can never be smuggled in as an annotation or vice versa.
+    const referenceAssets = (body.referenceAssetIds ?? [])
+      .map((assetId) => p.assets.find((a) => a.id === assetId && a.source === 'REFERENCE'))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a));
+    const references = (
+      await Promise.all(
+        referenceAssets.map(async (asset) => {
+          try {
+            const stream = await this.deps.storage.download(asset.storageKey, asset.storageBucket);
+            const chunks: Buffer[] = [];
+            for await (const chunk of stream) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
+            }
+            return { bytes: new Uint8Array(Buffer.concat(chunks)), mimeType: asset.mimeType };
+          } catch {
+            return null; // an unreadable reference degrades to text-only
+          }
+        }),
+      )
+    ).filter((image): image is NonNullable<typeof image> => image !== null);
+
     const outcome: DirectionOutcome = await this.director.direct({
       organizationId,
       story,
       instruction: body.instruction,
       images: p.assets
-        .filter((asset) => asset.mimeType.startsWith('image/') && asset.id !== p.coverAssetId)
+        .filter(
+          (asset) =>
+            asset.mimeType.startsWith('image/') &&
+            asset.id !== p.coverAssetId &&
+            asset.source !== 'REFERENCE',
+        )
         .map((asset) => ({ id: asset.id, caption: asset.caption })),
+      references,
       newSceneId: () => randomUUID(),
     });
 
@@ -820,7 +858,8 @@ export class StudioService {
     userId: string,
     id: string,
     file: { buffer: Buffer; mimeType: string; fileName: string },
-  ): Promise<{ id: string; url: string }> {
+    role: 'content' | 'reference' = 'content',
+  ): Promise<{ id: string; url: string; role: 'content' | 'reference' }> {
     const p = await requirePresentation(this.deps.prisma, organizationId, id);
     this.access.assertCanEdit(userId, p);
 
@@ -836,12 +875,14 @@ export class StudioService {
         storageKey: key,
         mimeType: file.mimeType,
         fileSizeBytes: file.buffer.length,
-        source: 'UPLOAD',
+        // REFERENCE assets are the designer's markup: excluded from imagery
+        // placement, from the director's placeable list, and from exports.
+        source: role === 'reference' ? 'REFERENCE' : 'UPLOAD',
         createdBy: userId,
       },
     });
     const url = await this.deps.storage.getSignedUrl(key, 3600, bucket);
-    return { id: asset.id, url };
+    return { id: asset.id, url, role };
   }
 
   /**

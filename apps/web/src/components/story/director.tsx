@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, ImagePlus, Loader2, Sparkles, Undo2, X } from 'lucide-react';
+import { ArrowUp, Check, ImagePlus, Loader2, ScanEye, Sparkles, Undo2, X } from 'lucide-react';
 import type { ArtDirection } from '@company-brain/studio';
 import { studioApi, type StudioDetail } from '@/lib/api';
 
@@ -56,7 +56,9 @@ export function StoryDirector({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  // Attachments default to REFERENCE — a screenshot in a revision is the
+  // designer's markup, not content. `content: true` is the explicit opt-in.
+  const [attachments, setAttachments] = useState<Array<{ file: File; content: boolean }>>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -99,16 +101,41 @@ export function StoryDirector({
     ]);
 
     try {
-      // Upload first so the director can refer to the image by id and decide
-      // where it belongs, rather than us guessing a placement for it.
-      if (files.length) {
-        await Promise.all(files.map((file) => studioApi.uploadAsset(detail.id, file)));
+      // References upload for the model's eyes; content images upload as
+      // placeable assets. Two different fates, decided by the user's toggle —
+      // never inferred.
+      const referenceIds: string[] = [];
+      let contentCount = 0;
+      for (const attachment of files) {
+        const uploaded = await studioApi.uploadAsset(
+          detail.id,
+          attachment.file,
+          attachment.content ? 'content' : 'reference',
+        );
+        if (attachment.content) contentCount += 1;
+        else referenceIds.push(uploaded.id);
       }
+
+      const notes: string[] = [];
+      if (referenceIds.length) {
+        notes.push(
+          `I attached ${referenceIds.length} reference screenshot${referenceIds.length === 1 ? '' : 's'} showing the problem — fix the underlying scenes, do not add the screenshot${referenceIds.length === 1 ? '' : 's'} to the story.`,
+        );
+      }
+      if (contentCount) {
+        notes.push(
+          `I uploaded ${contentCount} image${contentCount === 1 ? '' : 's'} as content — place ${contentCount === 1 ? 'it' : 'them'} where ${contentCount === 1 ? 'it' : 'they'} fit${contentCount === 1 ? 's' : ''} best.`,
+        );
+      }
+
       const result = await studioApi.direct(
         detail.id,
-        files.length
-          ? `${value || 'Place the image I just uploaded where it fits best.'} (I have just uploaded ${files.length} image${files.length === 1 ? '' : 's'}.)`
-          : value,
+        [
+          value ||
+            (contentCount ? 'Place the uploaded image well.' : 'Fix what the screenshot shows.'),
+          ...notes,
+        ].join(' '),
+        referenceIds,
       );
       setTurns((current) =>
         current.map((turn) =>
@@ -307,24 +334,49 @@ export function StoryDirector({
 
             <div className="shrink-0 border-t p-3" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
               {attachments.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {attachments.map((file, index) => (
-                    <span
-                      key={`${file.name}-${index}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.04] px-2 py-1 text-[0.7rem] text-white/60"
+                <div className="mb-2 space-y-1.5">
+                  {attachments.map((attachment, index) => (
+                    <div
+                      key={`${attachment.file.name}-${index}`}
+                      className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/[0.04] px-2.5 py-1.5"
                     >
-                      <ImagePlus className="h-3 w-3" style={{ color: art.accent }} />
-                      <span className="max-w-32 truncate">{file.name}</span>
+                      {attachment.content ? (
+                        <ImagePlus className="h-3.5 w-3.5 shrink-0" style={{ color: art.accent }} />
+                      ) : (
+                        <ScanEye className="h-3.5 w-3.5 shrink-0" style={{ color: art.accent }} />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block max-w-full truncate text-[0.72rem] text-white/75">
+                          {attachment.file.name}
+                        </span>
+                        <span className="block text-[0.62rem] text-white/40">
+                          {attachment.content
+                            ? 'Content — will be placed in the story'
+                            : 'Reference — I’ll look at it, it won’t be added'}
+                        </span>
+                      </span>
+                      <button
+                        onClick={() =>
+                          setAttachments((current) =>
+                            current.map((item, i) =>
+                              i === index ? { ...item, content: !item.content } : item,
+                            ),
+                          )
+                        }
+                        className="shrink-0 rounded-md border border-white/15 px-2 py-1 text-[0.62rem] text-white/55 transition-colors hover:border-white/35 hover:text-white"
+                      >
+                        {attachment.content ? 'Make reference' : 'Use as content'}
+                      </button>
                       <button
                         onClick={() =>
                           setAttachments((current) => current.filter((_, i) => i !== index))
                         }
-                        aria-label={`Remove ${file.name}`}
-                        className="rounded p-0.5 hover:bg-white/10"
+                        aria-label={`Remove ${attachment.file.name}`}
+                        className="shrink-0 rounded p-1 text-white/45 hover:bg-white/10 hover:text-white"
                       >
-                        <X className="h-2.5 w-2.5" />
+                        <X className="h-3 w-3" />
                       </button>
-                    </span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -347,7 +399,10 @@ export function StoryDirector({
                   onChange={(event) => {
                     setAttachments((current) => [
                       ...current,
-                      ...Array.from(event.target.files ?? []),
+                      ...Array.from(event.target.files ?? []).map((file) => ({
+                        file,
+                        content: false,
+                      })),
                     ]);
                     event.currentTarget.value = '';
                   }}

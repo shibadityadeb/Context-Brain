@@ -54,6 +54,10 @@ export class CodexProvider implements LLMProvider {
         const result = await this.runner.run(prompt, {
           timeoutMs: options.timeoutMs ?? this.config.timeoutMs,
           ...(options.signal ? { signal: options.signal } : {}),
+          // Vision: the Codex CLI takes image attachments as argv.
+          ...(options.imagePaths?.length
+            ? { extraArgs: options.imagePaths.flatMap((path) => ['-i', path]) }
+            : {}),
         });
         this.logger.info('codex.exec', {
           command: [this.config.binary, ...this.config.args].join(' '),

@@ -2939,6 +2939,11 @@ enum StudioAssetSource {
   UPLOAD
   BRAIN
   GENERATED
+  // A design reference or annotated screenshot attached to a revision. NEVER
+  // presentation content: excluded from imagery placement, from the director's
+  // placeable-image list, and from every export. It exists only so the model
+  // can look at it.
+  REFERENCE
 }
 
 model StudioPresentation {

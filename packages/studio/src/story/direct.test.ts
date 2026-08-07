@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { applyOperations, parseDirection, repairToneRhythm } from './direct.js';
+import {
+  applyOperations,
+  buildDirectorPrompt,
+  parseDirection,
+  repairToneRhythm,
+} from './direct.js';
 import { parseScenes } from './parse.js';
 import { resolveArtDirection } from './palettes.js';
 import { STORY_SPEC_VERSION, type StoryExperience } from './types.js';
@@ -203,6 +208,53 @@ describe('applying a direction', () => {
     );
     expect(changes[0]).toContain('The tension');
     expect(changes[0]).toContain('it was vague');
+  });
+});
+
+describe('reference screenshots', () => {
+  it('tells the model references are annotations, never content', () => {
+    const { system } = buildDirectorPrompt({
+      story: makeStory(),
+      instruction: 'Fix these arrows',
+      referenceCount: 1,
+    });
+    expect(system).toContain('REFERENCE SCREENSHOTS');
+    expect(system).toContain('NEVER place a reference screenshot');
+    expect(system).toMatch(/never appear in, or be recreated in, the story/);
+  });
+
+  it('declares the attachment in the prompt so text-only providers still behave', () => {
+    const { prompt } = buildDirectorPrompt({
+      story: makeStory(),
+      instruction: 'Fix these arrows',
+      referenceCount: 2,
+    });
+    expect(prompt).toContain('2 reference screenshots');
+    expect(prompt).toContain('not content');
+    expect(prompt).toContain('If you cannot see images');
+  });
+
+  it('lists only content images as placeable — references have no id to place', () => {
+    const { prompt } = buildDirectorPrompt({
+      story: makeStory(),
+      instruction: 'Add the dashboard shot',
+      images: [{ id: 'content-1', caption: 'dashboard', placedOn: null }],
+      referenceCount: 1,
+    });
+    expect(prompt).toContain('[content-1]');
+    // The reference block never carries an id — placement is impossible by
+    // construction, not by good behaviour.
+    const referenceBlock = prompt.slice(prompt.indexOf('ATTACHED:'));
+    expect(referenceBlock).not.toContain('content-1');
+  });
+
+  it('scopes the fix: the reference rules keep scope discipline explicit', () => {
+    const { system } = buildDirectorPrompt({
+      story: makeStory(),
+      instruction: 'Only fix the arrows',
+      referenceCount: 1,
+    });
+    expect(system).toMatch(/screenshot shows ten problems[\s\S]*fix the one/);
   });
 });
 

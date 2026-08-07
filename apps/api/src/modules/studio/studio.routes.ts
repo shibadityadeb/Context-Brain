@@ -9,6 +9,7 @@ import { LAYOUT_LIST, THEME_LIST } from '@company-brain/studio';
 import { StudioService } from './studio.service.js';
 import {
   answerPresentationSchema,
+  assetUploadQuerySchema,
   copilotSchema,
   createPresentationSchema,
   createSlideSchema,
@@ -365,9 +366,10 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
       preHandler: [authenticate],
       schema: {
         tags: ['studio'],
-        summary: 'Upload an image asset',
+        summary: 'Upload an image asset (role=reference for design annotations)',
         security: [{ bearerAuth: [] }],
         params: studioIdParamsSchema,
+        querystring: assetUploadQuerySchema,
         consumes: ['multipart/form-data'],
       },
     },
@@ -380,11 +382,13 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
         throw new BadRequestError('Only image files are supported');
 
       const organizationId = await service.resolveOrganization(request.user!.id);
-      const asset = await service.addAsset(organizationId, request.user!.id, request.params.id, {
-        buffer,
-        mimeType: file.mimetype,
-        fileName: file.filename,
-      });
+      const asset = await service.addAsset(
+        organizationId,
+        request.user!.id,
+        request.params.id,
+        { buffer, mimeType: file.mimetype, fileName: file.filename },
+        request.query.role,
+      );
       return reply.status(201).send(ok(asset, 'Image uploaded'));
     },
   );

@@ -127,13 +127,18 @@ export function toDetail(
     readiness: (p.readiness as StoryReadiness | null) ?? null,
     paletteId: p.paletteId ?? null,
     slides: p.slides.map(toSlideView),
-    assets: p.assets.map((a) => ({
-      id: a.id,
-      url: resolveAssetUrl(a),
-      mimeType: a.mimeType,
-      caption: a.caption ?? null,
-      width: a.width ?? null,
-      height: a.height ?? null,
-    })),
+    // REFERENCE assets are design annotations for the AI, not story assets —
+    // serving them here would surface them in image pickers and the website's
+    // asset map, which is exactly the leak the role exists to prevent.
+    assets: p.assets
+      .filter((a) => a.source !== 'REFERENCE')
+      .map((a) => ({
+        id: a.id,
+        url: resolveAssetUrl(a),
+        mimeType: a.mimeType,
+        caption: a.caption ?? null,
+        width: a.width ?? null,
+        height: a.height ?? null,
+      })),
   };
 }

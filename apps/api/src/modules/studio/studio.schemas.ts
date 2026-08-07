@@ -89,8 +89,18 @@ export type UpdateSlideBody = z.infer<typeof updateSlideSchema>;
 /** Conversational revision of the whole story ("drop the pricing scene"). */
 export const directStorySchema = z.object({
   instruction: z.string().min(2).max(2000),
+  /** REFERENCE-role assets attached to THIS instruction — screenshots the model
+   *  should look at, never place. */
+  referenceAssetIds: z.array(z.string().uuid()).max(4).optional(),
 });
 export type DirectStoryBody = z.infer<typeof directStorySchema>;
+
+/** Upload role: `content` may be placed in the story; `reference` is a design
+ *  annotation for the AI's eyes only and can never become content. */
+export const assetUploadQuerySchema = z.object({
+  role: z.enum(['content', 'reference']).default('content'),
+});
+export type AssetUploadQuery = z.infer<typeof assetUploadQuerySchema>;
 
 /** Single-slide copilot instruction. */
 export const copilotSchema = z.object({

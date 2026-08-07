@@ -2900,10 +2900,18 @@ export const studioApi = {
     });
   },
 
-  async uploadAsset(id: string, file: File): Promise<{ id: string; url: string }> {
+  /**
+   * `role: 'reference'` marks the upload as a design annotation — the AI looks
+   * at it, but it can never be placed in the story or appear in an export.
+   */
+  async uploadAsset(
+    id: string,
+    file: File,
+    role: 'content' | 'reference' = 'content',
+  ): Promise<{ id: string; url: string; role: 'content' | 'reference' }> {
     const form = new FormData();
     form.append('file', file);
-    return request(`/api/v1/studio/${id}/assets`, { method: 'POST', body: form });
+    return request(`/api/v1/studio/${id}/assets?role=${role}`, { method: 'POST', body: form });
   },
 
   /**
@@ -2930,10 +2938,12 @@ export const studioApi = {
     URL.revokeObjectURL(url);
   },
 
-  /** Revise the whole story from a natural-language instruction. */
+  /** Revise the whole story from a natural-language instruction. Reference
+   *  screenshot ids attach the images for the model to look at. */
   direct(
     id: string,
     instruction: string,
+    referenceAssetIds?: string[],
   ): Promise<{
     detail: StudioDetail;
     reply: string;
@@ -2943,7 +2953,10 @@ export const studioApi = {
   }> {
     return request(`/api/v1/studio/${id}/direct`, {
       method: 'POST',
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify({
+        instruction,
+        ...(referenceAssetIds?.length ? { referenceAssetIds } : {}),
+      }),
     });
   },
 

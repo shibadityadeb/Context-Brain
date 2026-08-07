@@ -12,6 +12,13 @@ export interface GenerateOptions {
   retries?: number;
   /** Abort the in-flight request (propagated to the child process). */
   signal?: AbortSignal;
+  /**
+   * Image files to attach to the prompt (absolute paths). Providers that can
+   * see images attach them (Codex: `-i <file>` per image); providers that
+   * cannot MUST ignore them silently — callers are expected to describe the
+   * image in text as a fallback, so a text-only provider still behaves sanely.
+   */
+  imagePaths?: string[];
 }
 
 /**

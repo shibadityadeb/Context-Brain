@@ -112,6 +112,9 @@ export function buildDirectorPrompt(input: {
   }>;
   /** Images the user has uploaded to this story and can be asked to place. */
   images?: Array<{ id: string; caption: string | null; placedOn: string | null }>;
+  /** How many REFERENCE screenshots are attached to this instruction. They are
+   *  annotations for the model's eyes only, never placeable content. */
+  referenceCount?: number;
 }): { system: string; prompt: string } {
   const system = [
     'You are the Story Director for Company Brain. The user has a finished story',
@@ -146,6 +149,24 @@ export function buildDirectorPrompt(input: {
     '"problem" scenes are built to hold a full image — if the user wants an image',
     'somewhere else, change that scene\'s kind to "reveal" in the same patch.',
     'Never reference an image id that is not listed.',
+    '',
+    'REFERENCE SCREENSHOTS — the most important rule in this brief:',
+    'The user may attach screenshots of the story (possibly annotated with',
+    'circles, arrows, or highlights) to SHOW you what is wrong. A reference',
+    "screenshot is the designer's markup, never presentation content.",
+    '  · NEVER place a reference screenshot on a scene. It has no asset id in',
+    '    AVAILABLE IMAGES precisely so you cannot.',
+    '  · Look at it to work out WHICH scene it shows — match its headline and',
+    '    layout against the numbered outline below — and WHAT the annotation',
+    '    points at (a diagram, spacing, a specific block of text).',
+    '  · Then fix the underlying structure: rewrite the diagram nodes/edges,',
+    '    change the scene kind, tighten the copy. The layout, arrows and spacing',
+    '    are re-derived from structure automatically, so structural changes ARE',
+    '    the visual fix.',
+    '  · Annotation marks (circles, scribbles) describe the problem; they must',
+    '    never appear in, or be recreated in, the story.',
+    '  · Scope discipline still applies: if the screenshot shows ten problems',
+    '    and the user names one, fix the one.',
     '',
     'Scene kinds: hero, chapter, statement, problem, reveal, metrics, architecture,',
     'graph, timeline, showcase, quote, demo, vision, cta.',
@@ -188,6 +209,19 @@ export function buildDirectorPrompt(input: {
       ].join('\n')
     : '';
 
+  const references = input.referenceCount
+    ? [
+        '',
+        `ATTACHED: ${input.referenceCount} reference screenshot${
+          input.referenceCount === 1 ? '' : 's'
+        } (design annotation, not content). If you can see ${
+          input.referenceCount === 1 ? 'it' : 'them'
+        }, use ${input.referenceCount === 1 ? 'it' : 'them'} to identify the target scene and the`,
+        'problem. If you cannot see images, rely on the instruction text and say',
+        'in your reply that you worked from the description alone.',
+      ].join('\n')
+    : '';
+
   const prompt = [
     `STORY: ${input.story.title}`,
     input.story.tagline ? `TAGLINE: ${input.story.tagline}` : '',
@@ -196,6 +230,7 @@ export function buildDirectorPrompt(input: {
     'SCENES:',
     outlineStory(input.story),
     images,
+    references,
     evidence,
     '',
     `USER INSTRUCTION:\n${input.instruction}`,

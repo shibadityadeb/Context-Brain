@@ -57,25 +57,28 @@ const extensionFor = (mimeType: string): string =>
 export class ExportService {
   constructor(private readonly deps: Deps) {}
 
-  /** Download every asset once; all three exporters share the result. */
+  /** Download every asset once; all three exporters share the result.
+   *  REFERENCE assets are the designer's markup — never part of any export. */
   private async resolveAssets(
     presentation: PresentationWithDetail,
   ): Promise<Map<string, ResolvedAsset>> {
     const resolved = new Map<string, ResolvedAsset>();
     await Promise.all(
-      presentation.assets.map(async (asset) => {
-        try {
-          const stream = await this.deps.storage.download(asset.storageKey, asset.storageBucket);
-          const bytes = await streamToBuffer(stream);
-          resolved.set(asset.id, {
-            bytes,
-            mimeType: asset.mimeType,
-            dataUrl: `data:${asset.mimeType};base64,${bytes.toString('base64')}`,
-          });
-        } catch {
-          /* a missing asset simply won't embed */
-        }
-      }),
+      presentation.assets
+        .filter((asset) => asset.source !== 'REFERENCE')
+        .map(async (asset) => {
+          try {
+            const stream = await this.deps.storage.download(asset.storageKey, asset.storageBucket);
+            const bytes = await streamToBuffer(stream);
+            resolved.set(asset.id, {
+              bytes,
+              mimeType: asset.mimeType,
+              dataUrl: `data:${asset.mimeType};base64,${bytes.toString('base64')}`,
+            });
+          } catch {
+            /* a missing asset simply won't embed */
+          }
+        }),
     );
     return resolved;
   }
