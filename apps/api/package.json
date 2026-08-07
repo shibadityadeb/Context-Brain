@@ -22,6 +22,7 @@
     "@company-brain/auth": "workspace:*",
     "@company-brain/connector-core": "workspace:*",
     "@company-brain/connector-google": "workspace:*",
+    "@company-brain/docgen": "workspace:*",
     "@company-brain/events": "workspace:*",
     "@company-brain/governance": "workspace:*",
     "@company-brain/graph": "workspace:*",

@@ -1,0 +1,4 @@
+{
+  "extends": "@company-brain/config/tsconfig/node",
+  "include": ["src"]
+}

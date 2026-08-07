@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { isSupported, type EmbeddingProvider } from '@company-brain/knowledge';
 import { WORKFLOW_TYPES } from '@company-brain/workflows';
 import { collectionForOrganization } from '@company-brain/activities';
+import { isRenderableAsPdf, markdownToPdf } from '../../services/document-pdf.service.js';
 import type { StorageService } from '../../services/storage.service.js';
 import type { VectorService } from '../../services/vector.service.js';
 import type { TemporalService } from '../../services/temporal.service.js';
@@ -360,6 +361,86 @@ export class KnowledgeService {
     });
     if (!document) throw new NotFoundError('Document not found');
     return this.serializeDocument(document);
+  }
+
+  /**
+   * Stream a document back as bytes — either exactly as stored, or rendered to
+   * PDF on the fly.
+   *
+   * The PDF path is what makes "any doc as a PDF" true rather than a property of
+   * documents the Action Layer happened to author: it prefers the Markdown a
+   * generated document was written from, falls back to the stored file for text
+   * formats, and finally to the extracted chunks, which every ingested document
+   * has regardless of the format it arrived in.
+   */
+  async downloadDocument(
+    organizationId: string,
+    documentId: string,
+    format: 'original' | 'pdf' = 'original',
+  ): Promise<{ buffer: Buffer; fileName: string; contentType: string }> {
+    const document = await this.deps.prisma.document.findFirst({
+      where: { id: documentId, organizationId, deletedAt: null },
+    });
+    if (!document) throw new NotFoundError('Document not found');
+
+    const stored = async (): Promise<Buffer> => {
+      const stream = await this.deps.storage.download(document.storageKey, document.storageBucket);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk as Buffer));
+      return Buffer.concat(chunks);
+    };
+
+    if (format === 'original' || document.mimeType === 'application/pdf') {
+      return {
+        buffer: await stored(),
+        fileName: document.fileName,
+        contentType: document.mimeType,
+      };
+    }
+
+    const metadata = (document.metadata ?? {}) as { sourceMarkdown?: unknown };
+    let markdown =
+      typeof metadata.sourceMarkdown === 'string' && metadata.sourceMarkdown.trim()
+        ? metadata.sourceMarkdown
+        : '';
+    if (!markdown && isRenderableAsPdf(document.mimeType)) {
+      markdown = await stored()
+        .then((b) => b.toString('utf8'))
+        .catch(() => '');
+    }
+    if (!markdown) {
+      const chunks = await this.deps.prisma.chunk.findMany({
+        where: { documentId, organizationId, deletedAt: null },
+        orderBy: { index: 'asc' },
+        select: { content: true, heading: true },
+      });
+      const parts: string[] = [];
+      let lastHeading: string | null = null;
+      for (const chunk of chunks) {
+        if (chunk.heading && chunk.heading !== lastHeading) {
+          parts.push(`## ${chunk.heading}`);
+          lastHeading = chunk.heading;
+        }
+        parts.push(chunk.content.trim());
+      }
+      markdown = parts.join('\n\n');
+    }
+    if (!markdown.trim()) {
+      throw new BadRequestError(
+        'This document has no extractable text yet, so it cannot be rendered as a PDF. Wait for processing to finish, or download the original.',
+      );
+    }
+
+    const buffer = await markdownToPdf(markdown, {
+      title: document.title,
+      subtitle: document.description,
+      meta: [document.fileName],
+    });
+    return {
+      buffer,
+      fileName: `${slugify(document.title) || 'document'}.pdf`,
+      contentType: 'application/pdf',
+    };
   }
 
   async getDocumentChunks(organizationId: string, documentId: string, limit = 200) {

@@ -160,6 +160,14 @@ export const config = {
     timeoutMs: env.OPENCLAW_TIMEOUT_MS,
     stepDelayMs: env.OPENCLAW_STEP_DELAY_MS,
     workspaceDir: env.OPENCLAW_WORKSPACE_DIR,
+    // The deliverable format an action falls back to when none was requested.
+    documentFormat: env.ACTION_DOCUMENT_FORMAT,
+  },
+  // How every PDF the Brain renders is laid out.
+  documentPdf: {
+    pageSize: env.DOCUMENT_PDF_PAGE_SIZE,
+    baseFontSize: env.DOCUMENT_PDF_BASE_FONT_SIZE,
+    footer: env.DOCUMENT_PDF_FOOTER,
   },
   connectors: {
     taskQueue: env.CONNECTOR_TASK_QUEUE,

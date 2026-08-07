@@ -9,6 +9,7 @@ import { config } from '../../config/index.js';
 import { KnowledgeService } from './knowledge.service.js';
 import {
   documentIdParamsSchema,
+  downloadDocumentQuerySchema,
   listDocumentsQuerySchema,
   searchBodySchema,
 } from './knowledge.schemas.js';
@@ -146,6 +147,35 @@ export default async function knowledgeRoutes(fastify: FastifyInstance): Promise
     async (request, reply) => {
       const organizationId = await service.resolveOrganization(request.user!.id);
       return reply.send(ok(await service.getDocument(organizationId, request.params.documentId)));
+    },
+  );
+
+  // Streamed download. `?format=pdf` renders any document to PDF on the fly —
+  // the same renderer the Action Layer uses, so a downloaded PDF and one an
+  // action produced are the same document.
+  app.get(
+    '/documents/:documentId/download',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['knowledge'],
+        summary: 'Download a document — as stored, or rendered to PDF',
+        security: [{ bearerAuth: [] }],
+        params: documentIdParamsSchema,
+        querystring: downloadDocumentQuerySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      const { buffer, fileName, contentType } = await service.downloadDocument(
+        organizationId,
+        request.params.documentId,
+        request.query.format,
+      );
+      return reply
+        .header('Content-Type', contentType)
+        .header('Content-Disposition', `attachment; filename="${fileName}"`)
+        .send(buffer);
     },
   );
 

@@ -134,6 +134,19 @@ const envSchema = z.object({
   // an action can never touch paths outside its workspace.
   OPENCLAW_WORKSPACE_DIR: z.string().default('.openclaw-workspace'),
 
+  // Rendering defaults for every PDF the Brain produces — deliverables written
+  // by the Action Layer and on-the-fly conversions of stored documents. Page
+  // size follows the office's paper stock; the body size drives the whole
+  // typographic scale.
+  DOCUMENT_PDF_PAGE_SIZE: z.enum(['a4', 'letter']).default('a4'),
+  DOCUMENT_PDF_BASE_FONT_SIZE: z.coerce.number().positive().min(7).max(18).default(10.5),
+  // Left-hand footer stamped on every page. Blank prints no footer text (the
+  // page number is always shown).
+  DOCUMENT_PDF_FOOTER: z.string().default(''),
+  // Default deliverable format when an action asks for a document without
+  // naming one. 'markdown' keeps documents editable; 'pdf' makes them final.
+  ACTION_DOCUMENT_FORMAT: z.enum(['markdown', 'pdf']).default('markdown'),
+
   // Phase 4 — Meeting Intelligence. The API starts/steers the durable meeting
   // workflows and authenticates the bot's transcript callbacks. All timings
   // fall back to the documented meeting-engine defaults when unset.

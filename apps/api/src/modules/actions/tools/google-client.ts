@@ -137,18 +137,59 @@ export class GoogleActionClient {
     title: string;
     content: string;
   }): Promise<{ fileId: string; webViewLink: string | null }> {
+    return this.uploadDriveFile({
+      name: input.title,
+      body: Buffer.from(input.content, 'utf8'),
+      sourceMimeType: 'text/markdown; charset=UTF-8',
+      targetMimeType: 'application/vnd.google-apps.document',
+    });
+  }
+
+  /**
+   * Upload a finished file (e.g. a rendered PDF) to the user's Drive as-is.
+   * Unlike {@link createDriveDocument} there is no conversion: what the Brain
+   * rendered is byte-for-byte what lands in Drive.
+   */
+  async uploadDriveBinary(input: {
+    title: string;
+    bytes: Buffer;
+    mimeType: string;
+  }): Promise<{ fileId: string; webViewLink: string | null }> {
+    return this.uploadDriveFile({
+      name: input.title,
+      body: input.bytes,
+      sourceMimeType: input.mimeType,
+    });
+  }
+
+  /** Multipart Drive upload: JSON metadata part + the file body part. */
+  private async uploadDriveFile(input: {
+    name: string;
+    body: Buffer;
+    sourceMimeType: string;
+    /** Ask Drive to convert on ingest (Google Docs); omit to keep the format. */
+    targetMimeType?: string;
+  }): Promise<{ fileId: string; webViewLink: string | null }> {
     const { accessToken } = await this.authorize(GOOGLE_WRITE_SCOPES.driveFile, 'drive');
 
-    const boundary = `cb_${Math.random().toString(36).slice(2)}`;
-    const metadata = { name: input.title, mimeType: 'application/vnd.google-apps.document' };
-    const body =
-      `--${boundary}\r\n` +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      `${JSON.stringify(metadata)}\r\n` +
-      `--${boundary}\r\n` +
-      'Content-Type: text/markdown; charset=UTF-8\r\n\r\n' +
-      `${input.content}\r\n` +
-      `--${boundary}--`;
+    const boundary = `cb_${randomUUID()}`;
+    const metadata = {
+      name: input.name,
+      ...(input.targetMimeType ? { mimeType: input.targetMimeType } : {}),
+    };
+    // Assembled as a Buffer, not a string, so binary bodies survive intact.
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\n` +
+          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+          `${JSON.stringify(metadata)}\r\n` +
+          `--${boundary}\r\n` +
+          `Content-Type: ${input.sourceMimeType}\r\n\r\n`,
+        'utf8',
+      ),
+      input.body,
+      Buffer.from(`\r\n--${boundary}--`, 'utf8'),
+    ]);
 
     const res = await fetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
