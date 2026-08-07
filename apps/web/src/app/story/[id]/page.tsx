@@ -3,6 +3,7 @@
 import { use, useCallback, useEffect, useState } from 'react';
 import { StoryExperience } from '@/components/story/story-experience';
 import { StoryBuilding, StoryQuestions } from '@/components/story/generation';
+import { StoryboardReview } from '@/components/story/storyboard';
 import { studioApi, type StudioDetail } from '@/lib/api';
 
 /**
@@ -69,6 +70,16 @@ export default function StoryPage({ params }: { params: Promise<{ id: string }> 
         onSubmitted={setDetail}
       />
     );
+  }
+
+  // The storyboard checkpoint: the plan is ready and awaiting direction. Only
+  // an explicit Generate moves past this — the user owns the narrative.
+  if (
+    detail.status === 'DRAFT' &&
+    detail.storyboard?.slides?.length &&
+    !detail.story?.scenes?.length
+  ) {
+    return <StoryboardReview detail={detail} onGenerated={setDetail} />;
   }
 
   if (detail.status === 'FAILED') {

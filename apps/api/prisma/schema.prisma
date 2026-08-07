@@ -2994,6 +2994,12 @@ model StudioPresentation {
   // slide editor. Defaults to web: the site is the primary experience.
   primarySurface String @default("web")
 
+  // The Storyboard: the reviewable, editable slide plan produced BEFORE any
+  // scene is composed ({ slides, narrativeArc, assumptions }). A presentation in
+  // DRAFT with a storyboard and no clarifications is awaiting the user's review;
+  // Generate builds the story FROM this plan, treating it as a specification.
+  storyboard Json?
+
   // Optional cover image (a StudioAsset id).
   coverAssetId String? @db.Uuid
 

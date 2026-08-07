@@ -5,6 +5,7 @@ import type {
   PresentationIntent,
   SlideContent,
   SlideSource,
+  Storyboard,
   StoryExperience,
   StoryReadiness,
   ThemeId,
@@ -74,6 +75,9 @@ export interface PresentationDetail extends PresentationSummary {
   /** Surfaced even on a successful run so the UI can show what Company Brain
    *  contributed rather than only what it had to ask about. */
   readiness: StoryReadiness | null;
+  /** The reviewable plan. DRAFT + storyboard + no clarifications = awaiting the
+   *  user's review; kept after build so the plan can be revisited and rebuilt. */
+  storyboard: Storyboard | null;
   paletteId: string | null;
 }
 
@@ -125,6 +129,7 @@ export function toDetail(
     generationError: p.generationError ?? null,
     story: (p.storySpec as StoryExperience | null) ?? null,
     readiness: (p.readiness as StoryReadiness | null) ?? null,
+    storyboard: (p.storyboard as Storyboard | null) ?? null,
     paletteId: p.paletteId ?? null,
     slides: p.slides.map(toSlideView),
     // REFERENCE assets are design annotations for the AI, not story assets —

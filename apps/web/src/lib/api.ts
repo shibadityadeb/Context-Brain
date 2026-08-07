@@ -2694,6 +2694,8 @@ import type {
   PresentationIntent as StudioIntent,
   SlideContent as StudioSlideContent,
   SlideSource as StudioSlideSource,
+  Storyboard as StudioStoryboard,
+  StoryboardSlide as StudioStoryboardSlide,
   StoryExperience as StudioStory,
   StoryReadiness as StudioReadiness,
   ThemeId as StudioThemeId,
@@ -2707,6 +2709,8 @@ export type {
   StudioIntent,
   StudioClarification,
   StudioStory,
+  StudioStoryboard,
+  StudioStoryboardSlide,
   StudioReadiness,
 };
 
@@ -2765,6 +2769,8 @@ export interface StudioDetail extends StudioSummary {
    *  before the Storytelling Engine; those are lifted from slides client-side. */
   story: StudioStory | null;
   readiness: StudioReadiness | null;
+  /** The reviewable plan. DRAFT + storyboard + no clarifications → review screen. */
+  storyboard: StudioStoryboard | null;
   paletteId: string | null;
 }
 
@@ -2820,9 +2826,39 @@ export const studioApi = {
     surface?: StorySurface;
     sceneCount?: number;
     slideCount?: number;
+    /** Structured setup; folded into known details so the engine never asks
+     *  about anything the configuration already answers. */
+    presentationType?: string;
+    audience?: string;
+    tone?: string;
+    webResearch?: 'auto' | 'always' | 'never';
     title?: string;
   }): Promise<StudioDetail> {
     return request('/api/v1/studio', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /** Save storyboard edits (full replace of the plan under review). */
+  updateStoryboard(id: string, storyboard: StudioStoryboard): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/storyboard`, {
+      method: 'PATCH',
+      body: JSON.stringify({ storyboard }),
+    });
+  },
+
+  /** Plan-stage copilot: revise the storyboard from an instruction. */
+  directStoryboard(
+    id: string,
+    instruction: string,
+  ): Promise<{ detail: StudioDetail; reply: string; changes: string[]; changed: boolean }> {
+    return request(`/api/v1/studio/${id}/storyboard/direct`, {
+      method: 'POST',
+      body: JSON.stringify({ instruction }),
+    });
+  },
+
+  /** Build the presentation from the approved storyboard. */
+  generate(id: string): Promise<StudioDetail> {
+    return request(`/api/v1/studio/${id}/generate`, { method: 'POST' });
   },
 
   answer(

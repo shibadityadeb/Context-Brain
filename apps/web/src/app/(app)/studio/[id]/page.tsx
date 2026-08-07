@@ -7,6 +7,7 @@ import { StudioEditor } from '@/components/studio/editor/editor';
 // it is the same moment in the same product, so it should look identical
 // wherever the user happens to be standing when it happens.
 import { StoryBuilding, StoryQuestions } from '@/components/story/generation';
+import { StoryboardReview } from '@/components/story/storyboard';
 
 export default function StudioEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -53,6 +54,15 @@ export default function StudioEditorPage({ params }: { params: Promise<{ id: str
         onSubmitted={setDetail}
       />
     );
+  }
+
+  // The storyboard checkpoint — same screen on both surfaces, one plan.
+  if (
+    detail.status === 'DRAFT' &&
+    detail.storyboard?.slides?.length &&
+    detail.slides.length === 0
+  ) {
+    return <StoryboardReview detail={detail} onGenerated={setDetail} />;
   }
 
   if (detail.status === 'FAILED') {

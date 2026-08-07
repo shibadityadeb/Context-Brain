@@ -499,11 +499,19 @@ function varyKinds(scenes: StoryScene[]): StoryScene[] {
 
 /** Every structural guarantee, applied in one place so generation and revision
  *  can't drift apart on what a valid story looks like. Order matters: fix empty
- *  scenes, ration the sparse ones, then vary what those passes flattened. */
-export function finalizeScenes(scenes: StoryScene[]): StoryScene[] {
-  return ensureClosingAction(varyKinds(capSparseScenes(enforceRenderable(scenes)))).map(
-    (scene, index) => ({ ...scene, index }),
-  );
+ *  scenes, ration the sparse ones, then vary what those passes flattened.
+ *
+ *  `approved: true` means the sequence of kinds was signed off by a human (an
+ *  approved storyboard): renderability and the closing ask are still enforced —
+ *  those are correctness — but the taste passes (sparse rationing, variety) are
+ *  skipped, because overruling an explicit plan is worse than repetition. */
+export function finalizeScenes(
+  scenes: StoryScene[],
+  options: { approved?: boolean } = {},
+): StoryScene[] {
+  const guaranteed = enforceRenderable(scenes);
+  const styled = options.approved ? guaranteed : varyKinds(capSparseScenes(guaranteed));
+  return ensureClosingAction(styled).map((scene, index) => ({ ...scene, index }));
 }
 
 // ── Imagery placement ────────────────────────────────────────────────────────

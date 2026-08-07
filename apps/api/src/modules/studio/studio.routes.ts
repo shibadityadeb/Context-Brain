@@ -20,6 +20,7 @@ import {
   studioIdParamsSchema,
   updatePresentationSchema,
   updateSlideSchema,
+  updateStoryboardSchema,
 } from './studio.schemas.js';
 
 /**
@@ -278,6 +279,83 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
             request.params.id,
             request.params.slideId,
           ),
+        ),
+      );
+    },
+  );
+
+  // ── Storyboard: review, edit, direct, then build ──────────────────────────────
+  app.patch(
+    '/:id/storyboard',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Save storyboard edits (the reviewable plan)',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+        body: updateStoryboardSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.updateStoryboard(
+            organizationId,
+            request.user!.id,
+            request.params.id,
+            request.body.storyboard as never,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.post(
+    '/:id/storyboard/direct',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Revise the storyboard from a natural-language instruction',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+        body: directStorySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.directStoryboard(
+            organizationId,
+            request.user!.id,
+            request.params.id,
+            request.body.instruction,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.post(
+    '/:id/generate',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Build the presentation from the approved storyboard',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.generateFromPlan(organizationId, request.user!.id, request.params.id),
+          'Building your presentation',
         ),
       );
     },

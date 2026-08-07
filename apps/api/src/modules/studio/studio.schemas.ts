@@ -30,9 +30,16 @@ export const createPresentationSchema = z.object({
   /** Optional explicit overrides; otherwise the AI derives them. */
   themeId: z.string().max(40).optional(),
   creativeDirection: z.enum(['investor', 'product-launch', 'editorial']).optional(),
-  /** How many scenes to compose. `slideCount` is kept as a deprecated alias so
-   *  existing clients keep working. */
-  sceneCount: z.coerce.number().int().min(5).max(24).optional(),
+  /** How many scenes to compose (a ceiling, never a quota). `slideCount` is a
+   *  deprecated alias kept so existing clients keep working. */
+  sceneCount: z.coerce.number().int().min(5).max(30).optional(),
+  /** Structured setup — free strings so the pickers can offer curated options
+   *  AND a custom value without an enum migration ever being needed. */
+  presentationType: z.string().max(60).optional(),
+  audience: z.string().max(60).optional(),
+  tone: z.string().max(60).optional(),
+  /** Gap research policy. 'auto' researches only what readiness says is missing. */
+  webResearch: z.enum(['auto', 'always', 'never']).optional(),
   slideCount: z.coerce.number().int().min(1).max(40).optional(),
   /** Explicit art-direction palette; omitted lets the Creative Director choose. */
   paletteId: z.string().max(40).optional(),
@@ -85,6 +92,29 @@ export const updateSlideSchema = z.object({
   notes: z.string().max(8000).nullish(),
 });
 export type UpdateSlideBody = z.infer<typeof updateSlideSchema>;
+
+/** A storyboard slide as edited in the review screen. Kind is validated in the
+ *  service against the scene registry; the wire stays permissive. */
+const storyboardSlideSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1).max(200),
+  purpose: z.string().max(500).default(''),
+  keyMessage: z.string().max(600).default(''),
+  kind: z.string().max(30),
+  visual: z.string().max(500).default(''),
+  evidence: z.array(z.string().max(300)).max(6).default([]),
+  sourceIds: z.array(z.string().max(500)).max(8).default([]),
+  notes: z.string().max(2000).optional(),
+});
+
+export const updateStoryboardSchema = z.object({
+  storyboard: z.object({
+    slides: z.array(storyboardSlideSchema).min(1).max(40),
+    narrativeArc: z.string().max(500).default(''),
+    assumptions: z.array(z.string().max(300)).max(10).default([]),
+  }),
+});
+export type UpdateStoryboardBody = z.infer<typeof updateStoryboardSchema>;
 
 /** Conversational revision of the whole story ("drop the pricing scene"). */
 export const directStorySchema = z.object({

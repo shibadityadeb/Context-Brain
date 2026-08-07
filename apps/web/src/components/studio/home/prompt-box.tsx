@@ -71,15 +71,44 @@ const DIRECTIONS = [
 type DirectionId = (typeof DIRECTIONS)[number]['id'];
 
 /**
- * How long the story runs. Treated as a ceiling, not a quota — the engine trims
- * to fit but never pads, because padding to hit a number is exactly how decks
- * end up with filler scenes.
+ * Structured setup. Everything here is folded into the engine's known details,
+ * so a question the panel already answers can never be asked again. All lists
+ * end in Custom — curated options with a typed escape hatch, never an enum wall.
  */
-const LENGTHS = [
-  { id: 8, label: 'Tight', note: '~8 scenes' },
-  { id: 12, label: 'Standard', note: '~12 scenes' },
-  { id: 18, label: 'In-depth', note: '~18 scenes' },
+const TYPES = [
+  'Investor / Pitch',
+  'Sales',
+  'Product',
+  'Strategy',
+  'Executive',
+  'Research',
+  'Internal',
+  'Training',
+  'Marketing',
 ] as const;
+
+const AUDIENCES = [
+  'Investors',
+  'Customers',
+  'Executives',
+  'Employees',
+  'Partners',
+  'General',
+] as const;
+
+const TONES = [
+  'Executive',
+  'Bold',
+  'Visionary',
+  'Technical',
+  'Minimal',
+  'Persuasive',
+  'Story-driven',
+] as const;
+
+/** Slide-count ceiling. The engine trims to fit and never pads — padding to hit
+ *  a number is exactly how decks end up with filler scenes. */
+const SLIDE_COUNTS = [5, 8, 10, 12, 15, 20, 25, 30] as const;
 
 /** The Storytelling Engine's front door: one brief, one directed experience. */
 export function PromptBox() {
@@ -89,6 +118,11 @@ export function PromptBox() {
   const [surface, setSurface] = useState<SurfaceId>('web');
   const [direction, setDirection] = useState<DirectionId | null>(null);
   const [sceneCount, setSceneCount] = useState<number>(12);
+  const [customCount, setCustomCount] = useState(false);
+  const [presentationType, setPresentationType] = useState('');
+  const [audience, setAudience] = useState('');
+  const [tone, setTone] = useState('');
+  const [webResearch, setWebResearch] = useState<'auto' | 'always' | 'never'>('auto');
   const [logo, setLogo] = useState<File | null>(null);
   const [images, setImages] = useState<File[]>([]);
   const [assetMenuOpen, setAssetMenuOpen] = useState(false);
@@ -105,6 +139,10 @@ export function PromptBox() {
         prompt: text.trim(),
         surface,
         sceneCount,
+        webResearch,
+        ...(presentationType ? { presentationType } : {}),
+        ...(audience ? { audience } : {}),
+        ...(tone ? { tone } : {}),
         ...(direction ? { creativeDirection: direction } : {}),
       });
 
@@ -313,28 +351,171 @@ export function PromptBox() {
         </div>
       </div>
 
-      <div className="mt-4">
-        <p className="mb-2 text-[11px] font-medium text-muted-foreground">
-          Length <span className="font-normal">— a ceiling; it trims rather than pads</span>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">Type</span>
+          <select
+            value={
+              TYPES.includes(presentationType as (typeof TYPES)[number])
+                ? presentationType
+                : presentationType
+                  ? '__custom'
+                  : ''
+            }
+            onChange={(event) =>
+              setPresentationType(
+                event.target.value === '__custom' ? presentationType || ' ' : event.target.value,
+              )
+            }
+            className="w-full rounded-lg border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+          >
+            <option value="">AI decides</option>
+            {TYPES.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+            <option value="__custom">Custom…</option>
+          </select>
+          {presentationType && !TYPES.includes(presentationType as (typeof TYPES)[number]) && (
+            <input
+              value={presentationType.trim()}
+              onChange={(event) => setPresentationType(event.target.value || ' ')}
+              placeholder="Describe the type"
+              className="mt-1.5 w-full rounded-lg border bg-background px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+            />
+          )}
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+            Audience
+          </span>
+          <select
+            value={
+              AUDIENCES.includes(audience as (typeof AUDIENCES)[number])
+                ? audience
+                : audience
+                  ? '__custom'
+                  : ''
+            }
+            onChange={(event) =>
+              setAudience(event.target.value === '__custom' ? audience || ' ' : event.target.value)
+            }
+            className="w-full rounded-lg border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+          >
+            <option value="">AI decides</option>
+            {AUDIENCES.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+            <option value="__custom">Custom…</option>
+          </select>
+          {audience && !AUDIENCES.includes(audience as (typeof AUDIENCES)[number]) && (
+            <input
+              value={audience.trim()}
+              onChange={(event) => setAudience(event.target.value || ' ')}
+              placeholder="Describe the audience"
+              className="mt-1.5 w-full rounded-lg border bg-background px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+            />
+          )}
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">Tone</span>
+          <select
+            value={TONES.includes(tone as (typeof TONES)[number]) ? tone : tone ? '__custom' : ''}
+            onChange={(event) =>
+              setTone(event.target.value === '__custom' ? tone || ' ' : event.target.value)
+            }
+            className="w-full rounded-lg border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+          >
+            <option value="">AI decides</option>
+            {TONES.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+            <option value="__custom">Custom…</option>
+          </select>
+          {tone && !TONES.includes(tone as (typeof TONES)[number]) && (
+            <input
+              value={tone.trim()}
+              onChange={(event) => setTone(event.target.value || ' ')}
+              placeholder="Describe the tone"
+              className="mt-1.5 w-full rounded-lg border bg-background px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+            />
+          )}
+        </label>
+
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+            Slides <span className="font-normal">(a ceiling — it trims, never pads)</span>
+          </span>
+          <select
+            value={customCount ? '__custom' : sceneCount}
+            onChange={(event) => {
+              if (event.target.value === '__custom') {
+                setCustomCount(true);
+              } else {
+                setCustomCount(false);
+                setSceneCount(Number(event.target.value));
+              }
+            }}
+            className="w-full rounded-lg border bg-background px-2.5 py-2 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+          >
+            {SLIDE_COUNTS.map((count) => (
+              <option key={count} value={count}>
+                {count} slides
+              </option>
+            ))}
+            <option value="__custom">Custom…</option>
+          </select>
+          {customCount && (
+            <input
+              type="number"
+              min={5}
+              max={30}
+              value={sceneCount}
+              onChange={(event) =>
+                setSceneCount(Math.max(5, Math.min(30, Number(event.target.value) || 12)))
+              }
+              className="mt-1.5 w-full rounded-lg border bg-background px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ai/30"
+            />
+          )}
+        </label>
+      </div>
+
+      <div className="mt-3">
+        <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+          Web research{' '}
+          <span className="font-normal">
+            — fills gaps Company Brain can’t; sources stay attached
+          </span>
         </p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {LENGTHS.map((item) => {
-            const selected = sceneCount === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setSceneCount(item.id)}
-                className={`rounded-xl border p-3 text-left transition ${
-                  selected ? 'border-ai bg-ai/5 ring-1 ring-ai/20' : 'hover:border-ai/40'
-                }`}
-              >
-                <span className="block text-xs font-semibold">{item.label}</span>
-                <span className="mt-0.5 block text-[11px] text-muted-foreground">{item.note}</span>
-              </button>
-            );
-          })}
+        <div className="flex gap-1.5">
+          {(
+            [
+              { id: 'auto', label: 'Let AI decide' },
+              { id: 'always', label: 'Search the web' },
+              { id: 'never', label: 'Company Brain only' },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={webResearch === item.id}
+              onClick={() => setWebResearch(item.id)}
+              className={`rounded-full border px-3 py-1 text-[11px] transition ${
+                webResearch === item.id
+                  ? 'border-ai bg-ai/5 text-foreground ring-1 ring-ai/20'
+                  : 'text-muted-foreground hover:border-ai/40'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
 
