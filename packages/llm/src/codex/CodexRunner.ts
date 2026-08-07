@@ -20,6 +20,9 @@ export interface RunResult {
 export interface RunOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Extra argv appended to the configured args for THIS run only (e.g. image
+   *  attachments). Never persisted into the config. */
+  extraArgs?: string[];
 }
 
 /**
@@ -70,7 +73,10 @@ export class CodexRunner implements CommandRunner {
         return;
       }
 
-      const child = this.spawn(this.config.binary, this.config.args, {
+      const args = options.extraArgs?.length
+        ? [...this.config.args, ...options.extraArgs]
+        : this.config.args;
+      const child = this.spawn(this.config.binary, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
       });

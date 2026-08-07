@@ -6,25 +6,33 @@ import { createLLMProvider, type LLMProvider } from '@company-brain/knowledge-en
 import {
   DEFAULT_SOURCES,
   ScopedRetrievalService,
+  createWebSearchProvider,
+  webSearchSource,
   type RetrievalService,
 } from '@company-brain/retrieval';
 import {
   ART_DIRECTIONS,
+  applyPlanOperations,
+  buildPlanDirectorPrompt,
   getLayout,
   getTheme,
+  parsePlanDirection,
   placeImagery,
   resolveArtDirection,
   scenesToSlides,
   type CreativeDirectionMode,
+  type PresentationIntent,
   type SlideContent,
+  type Storyboard,
   type StoryExperience,
   type StoryScene,
 } from '@company-brain/studio';
 import { config } from '../../config/index.js';
-import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 import type { StorageService } from '../../services/storage.service.js';
 import { StudioAccessControl } from './access-control.service.js';
 import { CopilotService, type CopilotResult } from './copilot.service.js';
+import { DirectorService, type DirectionOutcome } from './director.service.js';
 import { GenerationService } from './generation.service.js';
 import { ExportService } from './export.service.js';
 import { requirePresentation, reindexSlides } from './studio.store.js';
@@ -39,6 +47,7 @@ import type {
   AnswerPresentationBody,
   CopilotBody,
   CreatePresentationBody,
+  DirectStoryBody,
   CreateSlideBody,
   ListPresentationsQuery,
   UpdatePresentationBody,
@@ -72,6 +81,7 @@ export class StudioService {
   private readonly events: EventBus;
   readonly generation: GenerationService;
   readonly copilot: CopilotService;
+  readonly director: DirectorService;
   readonly export: ExportService;
   readonly access = new StudioAccessControl();
 
@@ -83,9 +93,27 @@ export class StudioService {
       baseUrl: config.llm.baseUrl,
     });
     this.retrieval = new ScopedRetrievalService(this.deps.prisma, [...DEFAULT_SOURCES]);
+    // Gap research goes through a web-only retrieval service, kept separate so
+    // Company Brain remains the primary evidence sweep. Provider-gated by the
+    // same config Ask Brain uses; unconfigured → NullProvider → graceful no-op.
+    const webRetrieval = new ScopedRetrievalService(this.deps.prisma, [
+      webSearchSource(
+        createWebSearchProvider({
+          provider: config.webSearch.provider,
+          apiKey: config.webSearch.apiKey,
+          maxResults: config.webSearch.maxResults,
+        }),
+        config.webSearch.maxResults,
+      ),
+    ]);
     this.events = new EventBus(this.deps.redis);
-    this.generation = new GenerationService({ llm: this.llm, retrieval: this.retrieval });
+    this.generation = new GenerationService({
+      llm: this.llm,
+      retrieval: this.retrieval,
+      webRetrieval,
+    });
     this.copilot = new CopilotService({ llm: this.llm, retrieval: this.retrieval });
+    this.director = new DirectorService({ llm: this.llm, retrieval: this.retrieval });
     this.export = new ExportService({ storage: this.deps.storage });
   }
 
@@ -169,13 +197,18 @@ export class StudioService {
       include: { creator: { select: { name: true } }, slides: true, assets: true },
     });
 
-    // Fire-and-forget: generation streams progress over the event bus. Structured
-    // as a pure engine call so it can later move into a Temporal activity as-is.
-    void this.runGeneration(presentation.id, organizationId, body.prompt, {
+    // Fire-and-forget: PLANNING streams progress over the event bus and ends at
+    // a reviewable storyboard, never a finished deck — the user directs the
+    // plan before anything is designed.
+    void this.runPlanning(presentation.id, organizationId, body.prompt, {
       themeId: body.themeId,
       paletteId: body.paletteId,
       creativeDirection: body.creativeDirection,
       sceneCount: body.sceneCount ?? body.slideCount,
+      presentationType: body.presentationType,
+      audience: body.audience,
+      tone: body.tone,
+      webResearch: body.webResearch,
       knownDetails: [],
       attempt: 1,
     });
@@ -214,7 +247,7 @@ export class StudioService {
       },
     });
 
-    void this.runGeneration(id, organizationId, p.prompt, {
+    void this.runPlanning(id, organizationId, p.prompt, {
       themeId: p.themeId,
       paletteId: p.paletteId,
       knownDetails,
@@ -224,7 +257,27 @@ export class StudioService {
     return this.get(organizationId, id);
   }
 
-  private async runGeneration(
+  private emitProgress(
+    organizationId: string,
+    presentationId: string,
+  ): (percent: number, note: string, status?: string) => Promise<void> {
+    return async (percent, note, status = 'GENERATING') => {
+      await this.events
+        .publish({
+          type: 'studio.generation.progress',
+          organizationId,
+          payload: { presentationId, percent, note, status },
+        })
+        .catch(() => undefined);
+    };
+  }
+
+  /**
+   * Stage 1 — plan. Ends at a reviewable storyboard (status DRAFT), or at
+   * questions when a decision only the user can make is missing. Never at a
+   * finished deck: the user directs the plan first.
+   */
+  private async runPlanning(
     presentationId: string,
     organizationId: string,
     prompt: string,
@@ -233,30 +286,23 @@ export class StudioService {
       paletteId?: string | null;
       creativeDirection?: CreativeDirectionMode;
       sceneCount?: number;
+      presentationType?: string;
+      audience?: string;
+      tone?: string;
+      webResearch?: 'auto' | 'always' | 'never';
       knownDetails?: Array<{ question: string; value: string }>;
       attempt?: number;
     },
   ): Promise<void> {
-    const emit = (percent: number, note: string, status = 'GENERATING') =>
-      this.events
-        .publish({
-          type: 'studio.generation.progress',
-          organizationId,
-          payload: { presentationId, percent, note, status },
-        })
-        .catch(() => undefined);
-
+    const emit = this.emitProgress(organizationId, presentationId);
     try {
-      const imageCount = await this.deps.prisma.studioAsset.count({
-        where: { presentationId, mimeType: { startsWith: 'image/' } },
-      });
-      const result = await this.generation.generate(organizationId, prompt, {
+      const result = await this.generation.plan(organizationId, prompt, {
         ...options,
         sceneCount: options.sceneCount ?? config.studio.targetScenes,
-        hasImages: imageCount > 0,
         maxRounds: config.studio.maxClarificationRounds,
         readinessThreshold: config.studio.readinessThreshold,
         maxQuestions: config.studio.maxQuestions,
+        newId: () => randomUUID(),
         onProgress: async (percent, note) => {
           await this.deps.prisma.studioPresentation.update({
             where: { id: presentationId },
@@ -268,8 +314,7 @@ export class StudioService {
 
       // Missing a decision only the user can make (and rounds remain) → persist
       // the questions and await answers. The readiness gate already dropped
-      // anything already answered and suppresses questions entirely on the final
-      // round, so this can't loop.
+      // anything answered and suppresses questions on the final round.
       if (result.clarifications.length > 0) {
         await this.deps.prisma.studioPresentation.update({
           where: { id: presentationId },
@@ -286,15 +331,179 @@ export class StudioService {
         return;
       }
 
-      // Give every scene a persistent id, art-direct the user's uploaded imagery
-      // into scenes built to hold it, then re-derive the deck so the website and
-      // the slides can never disagree about what the story is.
-      const story = result.story ? await this.finalizeStory(presentationId, result.story) : null;
-      const slides = story ? scenesToSlides(story.scenes) : result.slides;
+      await this.deps.prisma.studioPresentation.update({
+        where: { id: presentationId },
+        data: {
+          status: 'DRAFT',
+          generationProgress: null,
+          generationError: null,
+          themeId: options.themeId ?? result.intent.themeId,
+          intent: result.intent as unknown as Prisma.InputJsonValue,
+          storyboard: result.storyboard as unknown as Prisma.InputJsonValue,
+          readiness: result.readiness as unknown as Prisma.InputJsonValue,
+          clarifications: [],
+          sourceRefs: result.sourceRefs as unknown as Prisma.InputJsonValue,
+          ...(result.intent.blueprint?.title ? { title: result.intent.blueprint.title } : {}),
+        },
+      });
+      await emit(100, 'Storyboard ready for review', 'DRAFT');
+    } catch (err) {
+      await this.deps.prisma.studioPresentation
+        .update({
+          where: { id: presentationId },
+          data: {
+            status: 'FAILED',
+            generationProgress: null,
+            generationError: err instanceof Error ? err.message : 'Planning failed',
+          },
+        })
+        .catch(() => undefined);
+      await emit(100, 'Planning failed', 'FAILED');
+    }
+  }
 
-      // Persist slides atomically (replace any prior slides on regeneration).
-      const coverTitle = story?.title ?? slides.find((s) => s.layout === 'cover')?.content.title;
+  /** Save the user's storyboard edits. Full replace: the plan is small, and the
+   *  editor is the source of truth for it while in review. */
+  async updateStoryboard(
+    organizationId: string,
+    userId: string,
+    id: string,
+    storyboard: Storyboard,
+  ): Promise<PresentationDetail> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+    if (!p.storyboard) throw new BadRequestError('This story has no storyboard to edit');
+    if (!storyboard.slides.length)
+      throw new BadRequestError('A storyboard needs at least one slide');
+
+    await this.deps.prisma.studioPresentation.update({
+      where: { id },
+      data: { storyboard: storyboard as unknown as Prisma.InputJsonValue },
+    });
+    return this.get(organizationId, id);
+  }
+
+  /** Plan-stage copilot: "make slide 4 more visual", "combine 6 and 7". */
+  async directStoryboard(
+    organizationId: string,
+    userId: string,
+    id: string,
+    instruction: string,
+  ): Promise<{ detail: PresentationDetail; reply: string; changes: string[]; changed: boolean }> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+    const storyboard = p.storyboard as Storyboard | null;
+    if (!storyboard?.slides?.length)
+      throw new BadRequestError('This story has no storyboard to revise');
+
+    const { system, prompt } = buildPlanDirectorPrompt({ storyboard, instruction });
+    const raw = await this.llm.complete({ system, prompt });
+    const direction = parsePlanDirection(raw, storyboard.slides.length);
+
+    if (!direction.operations.length) {
+      return {
+        detail: await this.get(organizationId, id),
+        reply: direction.refusal ?? direction.reply,
+        changes: [],
+        changed: false,
+      };
+    }
+
+    const applied = applyPlanOperations(storyboard, direction.operations, () => randomUUID());
+    await this.deps.prisma.studioPresentation.update({
+      where: { id },
+      data: { storyboard: applied.storyboard as unknown as Prisma.InputJsonValue },
+    });
+    return {
+      detail: await this.get(organizationId, id),
+      reply: direction.reply,
+      changes: applied.changes,
+      changed: applied.changes.length > 0,
+    };
+  }
+
+  /**
+   * Stage 2 — build from the approved storyboard. Snapshot any existing story
+   * first (a rebuild must never destroy an earlier version), then compose.
+   */
+  async generateFromPlan(
+    organizationId: string,
+    userId: string,
+    id: string,
+  ): Promise<PresentationDetail> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+    const storyboard = p.storyboard as Storyboard | null;
+    if (!storyboard?.slides?.length)
+      throw new BadRequestError('Approve a storyboard before generating');
+
+    await this.deps.prisma.studioPresentation.update({
+      where: { id },
+      data: { status: 'GENERATING', generationProgress: 0 },
+    });
+    void this.runBuild(id, organizationId, storyboard, userId);
+    return this.get(organizationId, id);
+  }
+
+  private async runBuild(
+    presentationId: string,
+    organizationId: string,
+    storyboard: Storyboard,
+    userId: string,
+  ): Promise<void> {
+    const emit = this.emitProgress(organizationId, presentationId);
+    try {
+      const p = await requirePresentation(this.deps.prisma, organizationId, presentationId);
+      const intent = (p.intent as PresentationIntent | null) ?? {
+        documentType: 'Story',
+        audience: 'General',
+        purpose: p.prompt,
+        tone: 'Considered',
+        slideCount: storyboard.slides.length,
+        themeId: 'modern' as const,
+      };
+      const imageCount = await this.deps.prisma.studioAsset.count({
+        where: {
+          presentationId,
+          mimeType: { startsWith: 'image/' },
+          source: { not: 'REFERENCE' },
+        },
+      });
+
+      const result = await this.generation.buildFromPlan(organizationId, storyboard, intent, {
+        themeId: p.themeId,
+        paletteId: p.paletteId,
+        hasImages: imageCount > 0,
+        onProgress: async (percent, note) => {
+          await this.deps.prisma.studioPresentation.update({
+            where: { id: presentationId },
+            data: { generationProgress: percent },
+          });
+          await emit(percent, note);
+        },
+      });
+
+      const story = await this.finalizeStory(presentationId, result.story);
+      const slides = scenesToSlides(story.scenes);
+
+      const priorStory = p.storySpec as StoryExperience | null;
+      const versionOps = priorStory?.scenes?.length
+        ? [
+            this.deps.prisma.studioVersion.create({
+              data: {
+                presentationId,
+                organizationId,
+                version: p.currentVersion,
+                snapshot: priorStory as unknown as Prisma.InputJsonValue,
+                changeType: 'rebuild',
+                changedBy: userId,
+              },
+            }),
+          ]
+        : [];
+
       await this.deps.prisma.$transaction([
+        ...versionOps,
         this.deps.prisma.studioSlide.deleteMany({ where: { presentationId } }),
         ...slides.map((s, index) =>
           this.deps.prisma.studioSlide.create({
@@ -319,13 +528,10 @@ export class StudioService {
             status: 'READY',
             generationProgress: null,
             generationError: null,
-            themeId: options.themeId ?? result.intent.themeId,
-            intent: result.intent as unknown as Prisma.InputJsonValue,
             storySpec: story as unknown as Prisma.InputJsonValue,
-            readiness: result.readiness as unknown as Prisma.InputJsonValue,
-            clarifications: [],
             sourceRefs: result.sourceRefs as unknown as Prisma.InputJsonValue,
-            ...(coverTitle ? { title: coverTitle } : {}),
+            ...(priorStory?.scenes?.length ? { currentVersion: p.currentVersion + 1 } : {}),
+            ...(story.title ? { title: story.title } : {}),
           },
         }),
       ]);
@@ -407,13 +613,22 @@ export class StudioService {
   ): Promise<StoryExperience> {
     const presentation = await this.deps.prisma.studioPresentation.findUnique({
       where: { id: presentationId },
-      select: { coverAssetId: true, assets: { select: { id: true, mimeType: true } } },
+      select: {
+        coverAssetId: true,
+        assets: { select: { id: true, mimeType: true, source: true } },
+      },
     });
 
     // The cover asset is the brand logo — it belongs to the chrome (header,
-    // intro, watermark, footer), never dropped into a scene as content.
+    // intro, watermark, footer), never dropped into a scene as content. And
+    // REFERENCE assets are annotations for the AI, never content at all.
     const imageIds = (presentation?.assets ?? [])
-      .filter((a) => a.mimeType.startsWith('image/') && a.id !== presentation?.coverAssetId)
+      .filter(
+        (a) =>
+          a.mimeType.startsWith('image/') &&
+          a.id !== presentation?.coverAssetId &&
+          a.source !== 'REFERENCE',
+      )
       .map((a) => a.id);
 
     const identified = story.scenes.map((scene) => ({ ...scene, id: randomUUID() }));
@@ -617,6 +832,187 @@ export class StudioService {
     return this.get(organizationId, id);
   }
 
+  // ── Director (conversational revision of the whole story) ─────────────────────
+
+  /**
+   * "I didn't like that — change it."
+   *
+   * Snapshots the current story before applying anything, so every revision is
+   * one click from being undone. Without that, a bad instruction would cost the
+   * user work they'd already approved — and the whole point of directing rather
+   * than regenerating is that approved work survives.
+   */
+  async directStory(
+    organizationId: string,
+    userId: string,
+    id: string,
+    body: DirectStoryBody,
+  ): Promise<{
+    detail: PresentationDetail;
+    reply: string;
+    changes: string[];
+    refusal: string | null;
+    changed: boolean;
+  }> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+
+    const story = p.storySpec as StoryExperience | null;
+    if (!story?.scenes?.length) {
+      throw new BadRequestError('This story has no scenes to revise yet');
+    }
+
+    // Reference screenshots attached to THIS instruction: loaded as bytes for
+    // the model to look at. Restricted to REFERENCE-role assets of this story,
+    // so a content image can never be smuggled in as an annotation or vice versa.
+    const referenceAssets = (body.referenceAssetIds ?? [])
+      .map((assetId) => p.assets.find((a) => a.id === assetId && a.source === 'REFERENCE'))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a));
+    const references = (
+      await Promise.all(
+        referenceAssets.map(async (asset) => {
+          try {
+            const stream = await this.deps.storage.download(asset.storageKey, asset.storageBucket);
+            const chunks: Buffer[] = [];
+            for await (const chunk of stream) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
+            }
+            return { bytes: new Uint8Array(Buffer.concat(chunks)), mimeType: asset.mimeType };
+          } catch {
+            return null; // an unreadable reference degrades to text-only
+          }
+        }),
+      )
+    ).filter((image): image is NonNullable<typeof image> => image !== null);
+
+    const outcome: DirectionOutcome = await this.director.direct({
+      organizationId,
+      story,
+      instruction: body.instruction,
+      images: p.assets
+        .filter(
+          (asset) =>
+            asset.mimeType.startsWith('image/') &&
+            asset.id !== p.coverAssetId &&
+            asset.source !== 'REFERENCE',
+        )
+        .map((asset) => ({ id: asset.id, caption: asset.caption })),
+      references,
+      newSceneId: () => randomUUID(),
+    });
+
+    if (!outcome.changed) {
+      return {
+        detail: await this.get(organizationId, id),
+        reply: outcome.reply,
+        changes: outcome.changes,
+        refusal: outcome.refusal,
+        changed: false,
+      };
+    }
+
+    const nextVersion = p.currentVersion + 1;
+    const slides = scenesToSlides(outcome.story.scenes);
+
+    await this.deps.prisma.$transaction([
+      // The snapshot is of the story BEFORE this revision — that is what revert
+      // restores.
+      this.deps.prisma.studioVersion.create({
+        data: {
+          presentationId: id,
+          organizationId,
+          version: p.currentVersion,
+          snapshot: story as unknown as Prisma.InputJsonValue,
+          changeType: 'direction',
+          changedBy: userId,
+        },
+      }),
+      this.deps.prisma.studioSlide.deleteMany({ where: { presentationId: id } }),
+      ...slides.map((s, index) =>
+        this.deps.prisma.studioSlide.create({
+          data: {
+            id: s.id,
+            presentationId: id,
+            organizationId,
+            index,
+            layout: s.layout,
+            content: s.content as unknown as Prisma.InputJsonValue,
+            notes: s.notes,
+            sources: s.sources as unknown as Prisma.InputJsonValue,
+            confidence: s.confidence,
+          },
+        }),
+      ),
+      this.deps.prisma.studioPresentation.update({
+        where: { id },
+        data: {
+          storySpec: outcome.story as unknown as Prisma.InputJsonValue,
+          title: outcome.story.title,
+          paletteId: outcome.story.art.paletteId,
+          currentVersion: nextVersion,
+        },
+      }),
+    ]);
+
+    return {
+      detail: await this.get(organizationId, id),
+      reply: outcome.reply,
+      changes: outcome.changes,
+      refusal: outcome.refusal,
+      changed: true,
+    };
+  }
+
+  /** Step back to the story as it was before the most recent revision. */
+  async revertStory(
+    organizationId: string,
+    userId: string,
+    id: string,
+  ): Promise<{ detail: PresentationDetail; reverted: boolean }> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+
+    const previous = await this.deps.prisma.studioVersion.findFirst({
+      where: { presentationId: id },
+      orderBy: { version: 'desc' },
+    });
+    if (!previous) return { detail: await this.get(organizationId, id), reverted: false };
+
+    const story = previous.snapshot as unknown as StoryExperience;
+    const slides = scenesToSlides(story.scenes);
+
+    await this.deps.prisma.$transaction([
+      this.deps.prisma.studioSlide.deleteMany({ where: { presentationId: id } }),
+      ...slides.map((s, index) =>
+        this.deps.prisma.studioSlide.create({
+          data: {
+            id: s.id,
+            presentationId: id,
+            organizationId,
+            index,
+            layout: s.layout,
+            content: s.content as unknown as Prisma.InputJsonValue,
+            notes: s.notes,
+            sources: s.sources as unknown as Prisma.InputJsonValue,
+            confidence: s.confidence,
+          },
+        }),
+      ),
+      this.deps.prisma.studioPresentation.update({
+        where: { id },
+        data: {
+          storySpec: story as unknown as Prisma.InputJsonValue,
+          title: story.title,
+          paletteId: story.art.paletteId,
+          currentVersion: previous.version,
+        },
+      }),
+      this.deps.prisma.studioVersion.delete({ where: { id: previous.id } }),
+    ]);
+
+    return { detail: await this.get(organizationId, id), reverted: true };
+  }
+
   // ── Copilot ───────────────────────────────────────────────────────────────────
 
   async runCopilot(
@@ -664,7 +1060,8 @@ export class StudioService {
     userId: string,
     id: string,
     file: { buffer: Buffer; mimeType: string; fileName: string },
-  ): Promise<{ id: string; url: string }> {
+    role: 'content' | 'reference' = 'content',
+  ): Promise<{ id: string; url: string; role: 'content' | 'reference' }> {
     const p = await requirePresentation(this.deps.prisma, organizationId, id);
     this.access.assertCanEdit(userId, p);
 
@@ -680,12 +1077,14 @@ export class StudioService {
         storageKey: key,
         mimeType: file.mimeType,
         fileSizeBytes: file.buffer.length,
-        source: 'UPLOAD',
+        // REFERENCE assets are the designer's markup: excluded from imagery
+        // placement, from the director's placeable list, and from exports.
+        source: role === 'reference' ? 'REFERENCE' : 'UPLOAD',
         createdBy: userId,
       },
     });
     const url = await this.deps.storage.getSignedUrl(key, 3600, bucket);
-    return { id: asset.id, url };
+    return { id: asset.id, url, role };
   }
 
   /**

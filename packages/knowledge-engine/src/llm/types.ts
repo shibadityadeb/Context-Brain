@@ -4,13 +4,27 @@
  * and Zod validation happen in the engine so behavior is uniform across
  * Anthropic, OpenAI, Gemini, and local models.
  */
+/** An image attached to a completion for the model to LOOK at (a screenshot,
+ *  an annotated reference). Never content — providers must not echo it back. */
+export interface CompletionImage {
+  bytes: Uint8Array;
+  mimeType: string;
+}
+
 export interface LLMProvider {
   /** Stable id, e.g. "anthropic", "openai", "gemini", "local", "mock". */
   readonly name: string;
   /** Model identifier used for observability. */
   readonly model: string;
-  /** One completion; must return the raw model text. */
-  complete(input: { system: string; prompt: string }): Promise<string>;
+  /**
+   * One completion; must return the raw model text.
+   *
+   * `images` is a soft capability: providers that support vision attach them,
+   * providers that don't MUST ignore them silently. Callers therefore always
+   * describe the image in the prompt text as well, so a text-only provider
+   * still produces a sane (if less informed) answer.
+   */
+  complete(input: { system: string; prompt: string; images?: CompletionImage[] }): Promise<string>;
 }
 
 export type LLMProviderName = 'codex' | 'anthropic' | 'openai' | 'gemini' | 'local' | 'mock';

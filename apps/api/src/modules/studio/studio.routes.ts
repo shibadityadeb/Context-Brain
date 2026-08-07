@@ -9,15 +9,18 @@ import { LAYOUT_LIST, THEME_LIST } from '@company-brain/studio';
 import { StudioService } from './studio.service.js';
 import {
   answerPresentationSchema,
+  assetUploadQuerySchema,
   copilotSchema,
   createPresentationSchema,
   createSlideSchema,
+  directStorySchema,
   exportParamsSchema,
   listPresentationsQuerySchema,
   slideIdParamsSchema,
   studioIdParamsSchema,
   updatePresentationSchema,
   updateSlideSchema,
+  updateStoryboardSchema,
 } from './studio.schemas.js';
 
 /**
@@ -281,6 +284,130 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
     },
   );
 
+  // ── Storyboard: review, edit, direct, then build ──────────────────────────────
+  app.patch(
+    '/:id/storyboard',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Save storyboard edits (the reviewable plan)',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+        body: updateStoryboardSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.updateStoryboard(
+            organizationId,
+            request.user!.id,
+            request.params.id,
+            request.body.storyboard as never,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.post(
+    '/:id/storyboard/direct',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Revise the storyboard from a natural-language instruction',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+        body: directStorySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.directStoryboard(
+            organizationId,
+            request.user!.id,
+            request.params.id,
+            request.body.instruction,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.post(
+    '/:id/generate',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Build the presentation from the approved storyboard',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.generateFromPlan(organizationId, request.user!.id, request.params.id),
+          'Building your presentation',
+        ),
+      );
+    },
+  );
+
+  // ── Director: revise the whole story conversationally ─────────────────────────
+  app.post(
+    '/:id/direct',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Revise the story from a natural-language instruction',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+        body: directStorySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.directStory(
+            organizationId,
+            request.user!.id,
+            request.params.id,
+            request.body,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.post(
+    '/:id/revert',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Undo the most recent revision',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(await service.revertStory(organizationId, request.user!.id, request.params.id)),
+      );
+    },
+  );
+
   // ── Copilot (single-slide AI edit) ─────────────────────────────────────────────
   app.post(
     '/:id/slides/:slideId/copilot',
@@ -317,9 +444,10 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
       preHandler: [authenticate],
       schema: {
         tags: ['studio'],
-        summary: 'Upload an image asset',
+        summary: 'Upload an image asset (role=reference for design annotations)',
         security: [{ bearerAuth: [] }],
         params: studioIdParamsSchema,
+        querystring: assetUploadQuerySchema,
         consumes: ['multipart/form-data'],
       },
     },
@@ -332,11 +460,13 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
         throw new BadRequestError('Only image files are supported');
 
       const organizationId = await service.resolveOrganization(request.user!.id);
-      const asset = await service.addAsset(organizationId, request.user!.id, request.params.id, {
-        buffer,
-        mimeType: file.mimetype,
-        fileName: file.filename,
-      });
+      const asset = await service.addAsset(
+        organizationId,
+        request.user!.id,
+        request.params.id,
+        { buffer, mimeType: file.mimetype, fileName: file.filename },
+        request.query.role,
+      );
       return reply.status(201).send(ok(asset, 'Image uploaded'));
     },
   );

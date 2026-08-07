@@ -2939,6 +2939,11 @@ enum StudioAssetSource {
   UPLOAD
   BRAIN
   GENERATED
+  // A design reference or annotated screenshot attached to a revision. NEVER
+  // presentation content: excluded from imagery placement, from the director's
+  // placeable-image list, and from every export. It exists only so the model
+  // can look at it.
+  REFERENCE
 }
 
 model StudioPresentation {
@@ -2988,6 +2993,12 @@ model StudioPresentation {
   // where opening it takes you, so a story made as a website never reopens as a
   // slide editor. Defaults to web: the site is the primary experience.
   primarySurface String @default("web")
+
+  // The Storyboard: the reviewable, editable slide plan produced BEFORE any
+  // scene is composed ({ slides, narrativeArc, assumptions }). A presentation in
+  // DRAFT with a storyboard and no clarifications is awaiting the user's review;
+  // Generate builds the story FROM this plan, treating it as a specification.
+  storyboard Json?
 
   // Optional cover image (a StudioAsset id).
   coverAssetId String? @db.Uuid

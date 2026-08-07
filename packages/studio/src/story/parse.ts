@@ -10,7 +10,13 @@
 
 import { extractJson } from '../generation/parse.js';
 import type { Clarification, Metric, Quote, TimelineItem } from '../types.js';
-import { assignToneRhythm, defaultDensity, layoutDiagram, resolveSceneMotion } from './compose.js';
+import {
+  assignToneRhythm,
+  defaultDensity,
+  finalizeScenes,
+  layoutDiagram,
+  resolveSceneMotion,
+} from './compose.js';
 import {
   isSceneKind,
   type DiagramEdge,
@@ -264,7 +270,12 @@ export interface ParsedScenes {
  */
 export function parseScenes(
   text: string,
-  options: { motionDirection?: MotionDirection } = {},
+  options: {
+    motionDirection?: MotionDirection;
+    /** The kinds were approved by a human (a storyboard build): keep them —
+     *  correctness passes still run, taste passes don't. */
+    approved?: boolean;
+  } = {},
 ): ParsedScenes {
   const raw = extractJson(text) as Record<string, unknown>;
   const rawScenes = (Array.isArray(raw.scenes) ? raw.scenes : []).filter(isRecord);
@@ -299,7 +310,9 @@ export function parseScenes(
   if (drafts[0]!.kind !== 'hero') drafts[0]!.kind = 'hero';
   if (drafts[drafts.length - 1]!.kind !== 'cta') drafts[drafts.length - 1]!.kind = 'cta';
 
-  const kinds = breakRepetition(drafts.map((d) => d.kind));
+  const kinds = options.approved
+    ? drafts.map((d) => d.kind)
+    : breakRepetition(drafts.map((d) => d.kind));
   const tones = assignToneRhythm(kinds);
 
   const scenes: StoryScene[] = drafts.map((draft, index) => {
@@ -348,9 +361,13 @@ export function parseScenes(
     };
   });
 
+  // Structural guarantees last: no scene may render empty, single-sentence
+  // beats are rationed, and the close always carries an ask.
+  const finalized = finalizeScenes(scenes, { approved: options.approved });
+
   return {
     tagline: asString(raw.tagline) || undefined,
-    scenes,
+    scenes: finalized,
     sourceIds: drafts.map((d) => d.sourceIds),
   };
 }

@@ -348,6 +348,172 @@ export function layoutDiagram(
   });
 }
 
+// ── Renderability ────────────────────────────────────────────────────────────
+
+/** Does this scene actually have the payload its kind is built to display? */
+function hasPayload(scene: StoryScene): boolean {
+  switch (scene.kind) {
+    case 'metrics':
+      return Boolean(scene.metrics?.length);
+    case 'timeline':
+      return Boolean(scene.timeline?.length);
+    case 'architecture':
+    case 'graph':
+      return Boolean(scene.nodes?.length);
+    case 'showcase':
+      return Boolean(scene.cards?.length);
+    case 'quote':
+      return Boolean(scene.quote?.text);
+    case 'demo':
+      return Boolean(scene.demo);
+    default:
+      // Narrative kinds carry themselves on the headline alone.
+      return true;
+  }
+}
+
+/**
+ * Guarantee every scene has something to render.
+ *
+ * A `metrics` scene with no metrics renders a heading above an empty grid — a
+ * blank screen in the middle of the story. The slide derivation already
+ * degraded these, but the website rendered the kind as-is, so the two surfaces
+ * disagreed and only the website showed the hole. Downgrade to a kind the
+ * payload can actually support.
+ */
+export function enforceRenderable(scenes: StoryScene[]): StoryScene[] {
+  return scenes.map((scene) => {
+    if (hasPayload(scene)) return scene;
+    const kind: SceneKind = scene.points?.length ? 'problem' : 'statement';
+    return {
+      ...scene,
+      kind,
+      density: defaultDensity(kind),
+      // A statement is one sentence: drop anything that would contradict that.
+      body: kind === 'statement' ? undefined : scene.body,
+      points: kind === 'statement' ? undefined : scene.points,
+      motion: resolveSceneMotion({ kind, title: scene.title }),
+    };
+  });
+}
+
+/**
+ * Cap how much of a story can be single-sentence scenes.
+ *
+ * Whitespace is a deliberate device and a couple of held moments make a story
+ * feel confident — but past roughly a fifth of the running time they stop
+ * reading as intent and start reading as unfinished slides. Extras keep their
+ * words and become `problem` scenes, which still carry a headline but sit in a
+ * composition that looks authored rather than blank.
+ */
+export const STORY_COMPOSITION = {
+  /**
+   * Share of a story that may be single-sentence scenes. Two held beats in a
+   * twelve-scene story reads as confidence; five reads as an unfinished deck.
+   */
+  sparseSceneRatio: 0.2,
+} as const;
+
+export function capSparseScenes(
+  scenes: StoryScene[],
+  maxRatio = STORY_COMPOSITION.sparseSceneRatio,
+): StoryScene[] {
+  const budget = Math.max(1, Math.round(scenes.length * maxRatio));
+  let used = 0;
+  return scenes.map((scene, index) => {
+    if (scene.kind !== 'statement') return scene;
+    // Two held beats back to back is a stall, however long the story is.
+    const previous = scenes[index - 1];
+    const crowded = previous?.kind === 'statement';
+    if (used < budget && !crowded) {
+      used += 1;
+      return scene;
+    }
+    return {
+      ...scene,
+      kind: 'reveal' as SceneKind,
+      density: defaultDensity('reveal'),
+      motion: resolveSceneMotion({ kind: 'reveal', title: scene.title }),
+    };
+  });
+}
+
+/** A closing scene with no ask isn't a call to action. */
+export function ensureClosingAction(scenes: StoryScene[]): StoryScene[] {
+  return scenes.map((scene) =>
+    scene.kind === 'cta' && !scene.actions?.length
+      ? { ...scene, actions: [{ label: 'Start the conversation', variant: 'primary' as const }] }
+      : scene,
+  );
+}
+
+/**
+ * Kinds that always have something to show, whatever payload they carry. Used
+ * to break up runs left behind by the downgrade passes.
+ */
+const CARRIER_KINDS: SceneKind[] = ['statement', 'reveal', 'chapter'];
+
+/**
+ * Break runs of identical kinds in the FINAL list.
+ *
+ * This has to run last. Downgrading empty scenes can turn a varied sequence into
+ * a row of identical ones (six payload-less `showcase` scenes all become
+ * `statement`), and rationing sparse scenes then converts the overflow to a
+ * single kind — so a variation pass done earlier is undone by the very fixes
+ * that follow it.
+ */
+function varyKinds(scenes: StoryScene[]): StoryScene[] {
+  const out = scenes.map((scene) => ({ ...scene }));
+  let statements = out.filter((s) => s.kind === 'statement').length;
+  const budget = Math.max(1, Math.round(out.length * STORY_COMPOSITION.sparseSceneRatio));
+
+  for (let i = 1; i < out.length; i += 1) {
+    const scene = out[i]!;
+    const previous = out[i - 1]!;
+    if (scene.kind !== previous.kind) continue;
+    // The spine defines the story's shape; never rewrite it to add variety.
+    if (scene.kind === 'hero' || scene.kind === 'cta') continue;
+
+    const replacement = CARRIER_KINDS.find(
+      (kind) =>
+        kind !== previous.kind &&
+        kind !== out[i + 1]?.kind &&
+        // Don't solve repetition by breaching the single-sentence ration.
+        (kind !== 'statement' || statements < budget),
+    );
+    if (!replacement) continue;
+    if (scene.kind === 'statement') statements -= 1;
+    if (replacement === 'statement') statements += 1;
+
+    out[i] = {
+      ...scene,
+      kind: replacement,
+      density: defaultDensity(replacement),
+      body: replacement === 'statement' ? undefined : scene.body,
+      points: replacement === 'statement' ? undefined : scene.points,
+      motion: resolveSceneMotion({ kind: replacement, title: scene.title }),
+    };
+  }
+  return out;
+}
+
+/** Every structural guarantee, applied in one place so generation and revision
+ *  can't drift apart on what a valid story looks like. Order matters: fix empty
+ *  scenes, ration the sparse ones, then vary what those passes flattened.
+ *
+ *  `approved: true` means the sequence of kinds was signed off by a human (an
+ *  approved storyboard): renderability and the closing ask are still enforced —
+ *  those are correctness — but the taste passes (sparse rationing, variety) are
+ *  skipped, because overruling an explicit plan is worse than repetition. */
+export function finalizeScenes(
+  scenes: StoryScene[],
+  options: { approved?: boolean } = {},
+): StoryScene[] {
+  const guaranteed = enforceRenderable(scenes);
+  const styled = options.approved ? guaranteed : varyKinds(capSparseScenes(guaranteed));
+  return ensureClosingAction(styled).map((scene, index) => ({ ...scene, index }));
+}
+
 // ── Imagery placement ────────────────────────────────────────────────────────
 
 /** Scenes that can carry a full-bleed image without the composition collapsing,
