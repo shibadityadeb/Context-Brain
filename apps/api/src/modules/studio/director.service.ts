@@ -52,7 +52,8 @@ export class DirectorService {
     organizationId: string;
     story: StoryExperience;
     instruction: string;
-    paletteId?: string | null;
+    /** Uploaded images the director may place, with where each already sits. */
+    images?: Array<{ id: string; caption: string | null }>;
     newSceneId: () => string;
   }): Promise<DirectionOutcome> {
     let evidence: RetrievedItem[] = [];
@@ -68,9 +69,22 @@ export class DirectorService {
       }
     }
 
+    // Tell the director where each image currently sits, so "move the dashboard
+    // shot to the demo" is a move rather than a duplicate placement.
+    const placement = new Map(
+      input.story.scenes
+        .filter((scene) => scene.image?.assetId)
+        .map((scene) => [scene.image!.assetId!, scene.title] as const),
+    );
+
     const { system, prompt } = buildDirectorPrompt({
       story: input.story,
       instruction: input.instruction,
+      images: input.images?.map((image) => ({
+        id: image.id,
+        caption: image.caption,
+        placedOn: placement.get(image.id) ?? null,
+      })),
       evidence: evidence.map((item) => ({
         id: item.id,
         kind: item.kind,

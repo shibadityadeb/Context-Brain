@@ -15,7 +15,13 @@
  */
 
 import { extractJson } from '../generation/parse.js';
-import { assignToneRhythm, defaultDensity, layoutDiagram, resolveSceneMotion } from './compose.js';
+import {
+  assignToneRhythm,
+  defaultDensity,
+  finalizeScenes,
+  layoutDiagram,
+  resolveSceneMotion,
+} from './compose.js';
 import { ART_DIRECTIONS } from './palettes.js';
 import {
   isSceneKind,
@@ -44,6 +50,8 @@ export interface ScenePatch {
   quote?: StoryScene['quote'];
   demo?: StoryScene['demo'];
   actions?: StoryScene['actions'];
+  /** Place (or clear) an uploaded image on this scene. */
+  image?: StoryScene['image'] | null;
   notes?: string | null;
 }
 
@@ -102,6 +110,8 @@ export function buildDirectorPrompt(input: {
     title: string;
     summary: string | null;
   }>;
+  /** Images the user has uploaded to this story and can be asked to place. */
+  images?: Array<{ id: string; caption: string | null; placedOn: string | null }>;
 }): { system: string; prompt: string } {
   const system = [
     'You are the Story Director for Company Brain. The user has a finished story',
@@ -129,7 +139,13 @@ export function buildDirectorPrompt(input: {
     '',
     'PATCH FIELDS (include only what changes; null clears a field):',
     '  kind, tone, eyebrow, title, body, points, metrics, timeline,',
-    '  nodes, edges, cards, quote, demo, actions, notes',
+    '  nodes, edges, cards, quote, demo, actions, notes, image',
+    '',
+    'IMAGES: to place one, patch {"image":{"assetId":"<id>","alt":"..."}} using an',
+    'id from AVAILABLE IMAGES below. Only "reveal", "vision", "hero", "demo" and',
+    '"problem" scenes are built to hold a full image — if the user wants an image',
+    'somewhere else, change that scene\'s kind to "reveal" in the same patch.',
+    'Never reference an image id that is not listed.',
     '',
     'Scene kinds: hero, chapter, statement, problem, reveal, metrics, architecture,',
     'graph, timeline, showcase, quote, demo, vision, cta.',
@@ -159,6 +175,19 @@ export function buildDirectorPrompt(input: {
       ].join('\n')
     : '';
 
+  const images = input.images?.length
+    ? [
+        '',
+        'AVAILABLE IMAGES:',
+        ...input.images.map(
+          (image) =>
+            `[${image.id}]${image.caption ? ` ${image.caption}` : ''}${
+              image.placedOn ? ` — currently on “${image.placedOn}”` : ' — not yet placed'
+            }`,
+        ),
+      ].join('\n')
+    : '';
+
   const prompt = [
     `STORY: ${input.story.title}`,
     input.story.tagline ? `TAGLINE: ${input.story.tagline}` : '',
@@ -166,6 +195,7 @@ export function buildDirectorPrompt(input: {
     '',
     'SCENES:',
     outlineStory(input.story),
+    images,
     evidence,
     '',
     `USER INSTRUCTION:\n${input.instruction}`,
@@ -204,6 +234,14 @@ function coercePatch(raw: unknown): ScenePatch {
   }
   for (const key of ['quote', 'demo'] as const) {
     if (isRecord(raw[key])) (patch as Record<string, unknown>)[key] = raw[key];
+  }
+  if ('image' in raw) {
+    patch.image =
+      raw.image === null
+        ? null
+        : isRecord(raw.image) && asString(raw.image.assetId)
+          ? { assetId: asString(raw.image.assetId)!, alt: asString(raw.image.alt) }
+          : undefined;
   }
   if ('notes' in raw) patch.notes = raw.notes === null ? null : asString(raw.notes);
   return patch;
@@ -325,6 +363,7 @@ function applyPatch(scene: StoryScene, patch: ScenePatch): StoryScene {
   if (patch.quote !== undefined) next.quote = patch.quote;
   if (patch.demo !== undefined) next.demo = patch.demo;
   if (patch.actions !== undefined) next.actions = patch.actions;
+  if (patch.image !== undefined) next.image = patch.image ?? undefined;
 
   // Changing the kind changes what the scene IS, so its density budget and its
   // motion have to be re-derived — otherwise a scene turned into a `statement`
@@ -469,7 +508,9 @@ export function applyOperations(
   // A story with nothing left is not a story — refuse to produce one.
   if (!scenes.length) return { story, changes: ['No changes applied'] };
 
-  const repaired = repairToneRhythm(scenes).map((scene, index) => ({ ...scene, index }));
+  // The same structural guarantees generation applies — a revision must not be
+  // able to leave the story in a shape generation would never have produced.
+  const repaired = finalizeScenes(repairToneRhythm(scenes));
 
   return {
     story: { ...story, art, title, tagline, scenes: repaired },

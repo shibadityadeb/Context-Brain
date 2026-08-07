@@ -195,6 +195,16 @@ export class GenerationService {
     const composed = await this.composeScenes(evidence, intent, options);
 
     // ── Grounding ───────────────────────────────────────────────────────────
+    // Honour a requested length by TRIMMING only. Padding to hit a number is
+    // how decks get filler scenes, which is the opposite of what a length
+    // control is for. The spine (opening and close) is always kept.
+    if (options.sceneCount && composed.scenes.length > options.sceneCount) {
+      const kept = composed.scenes.slice(0, options.sceneCount - 1);
+      const closing = composed.scenes[composed.scenes.length - 1]!;
+      composed.scenes = [...kept, closing];
+      composed.sourceIds = composed.sourceIds.slice(0, options.sceneCount);
+    }
+
     await report(88, 'Grounding every claim');
     const scenes = await this.groundScenes(organizationId, composed.scenes, composed.sourceIds, {
       evidenceById,

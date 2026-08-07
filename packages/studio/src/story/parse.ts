@@ -10,7 +10,13 @@
 
 import { extractJson } from '../generation/parse.js';
 import type { Clarification, Metric, Quote, TimelineItem } from '../types.js';
-import { assignToneRhythm, defaultDensity, layoutDiagram, resolveSceneMotion } from './compose.js';
+import {
+  assignToneRhythm,
+  defaultDensity,
+  finalizeScenes,
+  layoutDiagram,
+  resolveSceneMotion,
+} from './compose.js';
 import {
   isSceneKind,
   type DiagramEdge,
@@ -348,9 +354,13 @@ export function parseScenes(
     };
   });
 
+  // Structural guarantees last: no scene may render empty, single-sentence
+  // beats are rationed, and the close always carries an ask.
+  const finalized = finalizeScenes(scenes);
+
   return {
     tagline: asString(raw.tagline) || undefined,
-    scenes,
+    scenes: finalized,
     sourceIds: drafts.map((d) => d.sourceIds),
   };
 }

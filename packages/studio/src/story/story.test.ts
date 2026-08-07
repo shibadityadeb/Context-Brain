@@ -115,6 +115,71 @@ describe('scene parsing', () => {
   });
 });
 
+describe('no scene may render empty', () => {
+  const compose = (scenes: unknown[]) => parseScenes(JSON.stringify({ scenes }));
+
+  it.each([
+    ['metrics', {}],
+    ['timeline', {}],
+    ['architecture', {}],
+    ['graph', {}],
+    ['showcase', {}],
+    ['quote', {}],
+    ['demo', {}],
+  ])('downgrades a %s scene with no payload', (kind, extra) => {
+    const { scenes } = compose([
+      { kind: 'hero', title: 'Open' },
+      { kind, title: 'Bare scene', ...extra },
+      { kind: 'cta', title: 'Close' },
+    ]);
+    const bare = scenes.find((s) => s.title === 'Bare scene')!;
+    // Whatever it becomes, it must be a kind that carries itself on the
+    // headline — never one that renders an empty grid or diagram.
+    expect(['statement', 'problem', 'reveal']).toContain(bare.kind);
+  });
+
+  it('keeps the kind when the payload is present', () => {
+    const { scenes } = compose([
+      { kind: 'hero', title: 'Open' },
+      { kind: 'metrics', title: 'Traction', metrics: [{ value: '2x', label: 'Growth' }] },
+      { kind: 'cta', title: 'Close' },
+    ]);
+    expect(scenes.find((s) => s.title === 'Traction')!.kind).toBe('metrics');
+  });
+
+  it('rations single-sentence scenes instead of filling a story with them', () => {
+    const { scenes } = compose([
+      { kind: 'hero', title: 'Open' },
+      ...Array.from({ length: 10 }, (_, i) => ({ kind: 'statement', title: `Held beat ${i}` })),
+      { kind: 'cta', title: 'Close' },
+    ]);
+    const statements = scenes.filter((s) => s.kind === 'statement');
+    expect(statements.length).toBeLessThanOrEqual(Math.ceil(scenes.length * 0.2) + 1);
+  });
+
+  it('never places two single-sentence scenes back to back', () => {
+    const { scenes } = compose([
+      { kind: 'hero', title: 'Open' },
+      { kind: 'statement', title: 'One' },
+      { kind: 'statement', title: 'Two' },
+      { kind: 'cta', title: 'Close' },
+    ]);
+    for (let i = 1; i < scenes.length; i += 1) {
+      expect(scenes[i]!.kind === 'statement' && scenes[i - 1]!.kind === 'statement').toBe(false);
+    }
+  });
+
+  it('always gives the closing scene an ask', () => {
+    const { scenes } = compose([
+      { kind: 'hero', title: 'Open' },
+      { kind: 'cta', title: 'Close' },
+    ]);
+    const cta = scenes[scenes.length - 1]!;
+    expect(cta.kind).toBe('cta');
+    expect(cta.actions?.length).toBeGreaterThan(0);
+  });
+});
+
 describe('readiness gating', () => {
   it('drops generic questions Company Brain can already answer', () => {
     const { questions } = parseReadiness(

@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, Loader2, Sparkles, Undo2, X } from 'lucide-react';
+import { ArrowUp, Check, ImagePlus, Loader2, Sparkles, Undo2, X } from 'lucide-react';
 import type { ArtDirection } from '@company-brain/studio';
 import { studioApi, type StudioDetail } from '@/lib/api';
 
@@ -29,6 +29,8 @@ interface Turn {
   failed?: boolean;
   /** Whether this turn actually altered the story (drives the undo affordance). */
   applied?: boolean;
+  /** How many images were sent with this instruction. */
+  attached?: number;
 }
 
 const SUGGESTIONS = [
@@ -37,6 +39,7 @@ const SUGGESTIONS = [
   'Add a scene on how it works',
   'Less corporate, more human',
   'Try a warmer palette',
+  'Make it shorter',
 ];
 
 export function StoryDirector({
@@ -53,8 +56,10 @@ export function StoryDirector({
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // `/` opens the director from anywhere in the story, the same key every
   // command surface in the app uses.
@@ -82,14 +87,29 @@ export function StoryDirector({
 
   const send = async (text: string) => {
     const value = text.trim();
-    if (!value || busy) return;
+    const files = attachments;
+    if ((!value && !files.length) || busy) return;
     const id = turns.length;
     setInstruction('');
+    setAttachments([]);
     setBusy(true);
-    setTurns((current) => [...current, { id, instruction: value, pending: true }]);
+    setTurns((current) => [
+      ...current,
+      { id, instruction: value || 'Use this image', pending: true, attached: files.length },
+    ]);
 
     try {
-      const result = await studioApi.direct(detail.id, value);
+      // Upload first so the director can refer to the image by id and decide
+      // where it belongs, rather than us guessing a placement for it.
+      if (files.length) {
+        await Promise.all(files.map((file) => studioApi.uploadAsset(detail.id, file)));
+      }
+      const result = await studioApi.direct(
+        detail.id,
+        files.length
+          ? `${value || 'Place the image I just uploaded where it fits best.'} (I have just uploaded ${files.length} image${files.length === 1 ? '' : 's'}.)`
+          : value,
+      );
       setTurns((current) =>
         current.map((turn) =>
           turn.id === id
@@ -286,7 +306,52 @@ export function StoryDirector({
             </div>
 
             <div className="shrink-0 border-t p-3" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+              {attachments.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {attachments.map((file, index) => (
+                    <span
+                      key={`${file.name}-${index}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.04] px-2 py-1 text-[0.7rem] text-white/60"
+                    >
+                      <ImagePlus className="h-3 w-3" style={{ color: art.accent }} />
+                      <span className="max-w-32 truncate">{file.name}</span>
+                      <button
+                        onClick={() =>
+                          setAttachments((current) => current.filter((_, i) => i !== index))
+                        }
+                        aria-label={`Remove ${file.name}`}
+                        className="rounded p-0.5 hover:bg-white/10"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="flex items-end gap-2 rounded-xl border border-white/12 bg-white/[0.04] p-2">
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  title="Attach an image"
+                  aria-label="Attach an image"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </button>
+                <input
+                  ref={fileRef}
+                  hidden
+                  multiple
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    setAttachments((current) => [
+                      ...current,
+                      ...Array.from(event.target.files ?? []),
+                    ]);
+                    event.currentTarget.value = '';
+                  }}
+                />
                 <textarea
                   ref={inputRef}
                   value={instruction}
@@ -303,7 +368,7 @@ export function StoryDirector({
                 />
                 <button
                   onClick={() => void send(instruction)}
-                  disabled={busy || !instruction.trim()}
+                  disabled={busy || (!instruction.trim() && attachments.length === 0)}
                   className="grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-opacity disabled:opacity-30"
                   style={{ background: art.accent, color: art.onAccent }}
                   aria-label="Send"

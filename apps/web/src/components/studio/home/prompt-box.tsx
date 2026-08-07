@@ -70,6 +70,17 @@ const DIRECTIONS = [
 
 type DirectionId = (typeof DIRECTIONS)[number]['id'];
 
+/**
+ * How long the story runs. Treated as a ceiling, not a quota — the engine trims
+ * to fit but never pads, because padding to hit a number is exactly how decks
+ * end up with filler scenes.
+ */
+const LENGTHS = [
+  { id: 8, label: 'Tight', note: '~8 scenes' },
+  { id: 12, label: 'Standard', note: '~12 scenes' },
+  { id: 18, label: 'In-depth', note: '~18 scenes' },
+] as const;
+
 /** The Storytelling Engine's front door: one brief, one directed experience. */
 export function PromptBox() {
   const router = useRouter();
@@ -77,6 +88,7 @@ export function PromptBox() {
   const [busy, setBusy] = useState(false);
   const [surface, setSurface] = useState<SurfaceId>('web');
   const [direction, setDirection] = useState<DirectionId | null>(null);
+  const [sceneCount, setSceneCount] = useState<number>(12);
   const [logo, setLogo] = useState<File | null>(null);
   const [images, setImages] = useState<File[]>([]);
   const [assetMenuOpen, setAssetMenuOpen] = useState(false);
@@ -92,6 +104,7 @@ export function PromptBox() {
       const story = await studioApi.create({
         prompt: text.trim(),
         surface,
+        sceneCount,
         ...(direction ? { creativeDirection: direction } : {}),
       });
 
@@ -294,6 +307,31 @@ export function PromptBox() {
                     {item.note}
                   </span>
                 </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-2 text-[11px] font-medium text-muted-foreground">
+          Length <span className="font-normal">— a ceiling; it trims rather than pads</span>
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {LENGTHS.map((item) => {
+            const selected = sceneCount === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSceneCount(item.id)}
+                className={`rounded-xl border p-3 text-left transition ${
+                  selected ? 'border-ai bg-ai/5 ring-1 ring-ai/20' : 'hover:border-ai/40'
+                }`}
+              >
+                <span className="block text-xs font-semibold">{item.label}</span>
+                <span className="mt-0.5 block text-[11px] text-muted-foreground">{item.note}</span>
               </button>
             );
           })}

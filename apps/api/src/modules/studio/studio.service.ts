@@ -655,6 +655,9 @@ export class StudioService {
       organizationId,
       story,
       instruction: body.instruction,
+      images: p.assets
+        .filter((asset) => asset.mimeType.startsWith('image/') && asset.id !== p.coverAssetId)
+        .map((asset) => ({ id: asset.id, caption: asset.caption })),
       newSceneId: () => randomUUID(),
     });
 
