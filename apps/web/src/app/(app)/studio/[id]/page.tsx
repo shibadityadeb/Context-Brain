@@ -3,8 +3,10 @@
 import { use, useEffect, useState } from 'react';
 import { studioApi, type StudioDetail } from '@/lib/api';
 import { StudioEditor } from '@/components/studio/editor/editor';
-import { GeneratingView } from '@/components/studio/editor/generating-view';
-import { ClarifyDialog } from '@/components/studio/editor/clarify-dialog';
+// The build and question screens are shared with the story route on purpose:
+// it is the same moment in the same product, so it should look identical
+// wherever the user happens to be standing when it happens.
+import { StoryBuilding, StoryQuestions } from '@/components/story/generation';
 
 export default function StudioEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -33,7 +35,7 @@ export default function StudioEditorPage({ params }: { params: Promise<{ id: str
 
   if (detail.status === 'GENERATING') {
     return (
-      <GeneratingView
+      <StoryBuilding
         presentationId={id}
         initialProgress={detail.generationProgress}
         onDone={setDetail}
@@ -41,12 +43,13 @@ export default function StudioEditorPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  // Missing critical evidence → ask before building.
+  // A decision only the user can make → ask before building.
   if (detail.clarifications.length > 0 && detail.slides.length === 0) {
     return (
-      <ClarifyDialog
+      <StoryQuestions
         presentationId={id}
         clarifications={detail.clarifications}
+        readiness={detail.readiness}
         onSubmitted={setDetail}
       />
     );

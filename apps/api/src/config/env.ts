@@ -77,6 +77,14 @@ const envSchema = z.object({
   // Studio: how many rounds of clarifying questions before the deck is generated
   // regardless (so it can never loop asking the same things).
   STUDIO_MAX_CLARIFICATION_ROUNDS: z.coerce.number().int().positive().default(3),
+  // The Readiness gate. At or above this confidence the engine generates
+  // immediately and asks nothing — asking is the exception, not the flow.
+  STUDIO_READINESS_THRESHOLD: z.coerce.number().min(0).max(1).default(0.62),
+  // Hard ceiling on questions per round. The brief is "the minimum number of
+  // intelligent questions"; this is what makes that a guarantee.
+  STUDIO_MAX_QUESTIONS: z.coerce.number().int().positive().max(5).default(3),
+  // Target number of scenes in a composed story.
+  STUDIO_TARGET_SCENES: z.coerce.number().int().min(5).max(24).default(12),
 
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),

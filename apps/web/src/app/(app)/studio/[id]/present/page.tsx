@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { studioApi, type StudioDetail } from '@/lib/api';
-import { PresentView } from '@/components/studio/present-view';
+import { Presenter } from '@/components/story/presenter';
 
 export default function PresentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -28,12 +28,6 @@ export default function PresentPage({ params }: { params: Promise<{ id: string }
     return (
       <div className="grid h-screen place-items-center text-sm text-muted-foreground">Loading…</div>
     );
-  if (!detail.slides.length)
-    return (
-      <div className="grid h-screen place-items-center text-sm text-muted-foreground">
-        This presentation has no slides yet.
-      </div>
-    );
 
-  return <PresentView detail={detail} />;
+  return <Presenter detail={detail} />;
 }

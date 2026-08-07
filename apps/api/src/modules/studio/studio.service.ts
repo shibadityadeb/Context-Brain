@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { PrismaClient, Prisma } from '@prisma/client';
 import type { Redis } from 'ioredis';
 import { EventBus } from '@company-brain/events';
@@ -8,10 +9,16 @@ import {
   type RetrievalService,
 } from '@company-brain/retrieval';
 import {
+  ART_DIRECTIONS,
   getLayout,
   getTheme,
+  placeImagery,
+  resolveArtDirection,
+  scenesToSlides,
   type CreativeDirectionMode,
   type SlideContent,
+  type StoryExperience,
+  type StoryScene,
 } from '@company-brain/studio';
 import { config } from '../../config/index.js';
 import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
@@ -154,6 +161,7 @@ export class StudioService {
         title: body.title ?? deriveTitle(body.prompt),
         prompt: body.prompt,
         themeId: body.themeId ?? 'modern',
+        paletteId: body.paletteId ?? null,
         status: 'GENERATING',
         generationProgress: 0,
       },
@@ -164,8 +172,9 @@ export class StudioService {
     // as a pure engine call so it can later move into a Temporal activity as-is.
     void this.runGeneration(presentation.id, organizationId, body.prompt, {
       themeId: body.themeId,
+      paletteId: body.paletteId,
       creativeDirection: body.creativeDirection,
-      slideCount: body.slideCount,
+      sceneCount: body.sceneCount ?? body.slideCount,
       knownDetails: [],
       attempt: 1,
     });
@@ -206,6 +215,7 @@ export class StudioService {
 
     void this.runGeneration(id, organizationId, p.prompt, {
       themeId: p.themeId,
+      paletteId: p.paletteId,
       knownDetails,
       attempt: attempt + 1,
     });
@@ -219,8 +229,9 @@ export class StudioService {
     prompt: string,
     options: {
       themeId?: string;
+      paletteId?: string | null;
       creativeDirection?: CreativeDirectionMode;
-      slideCount?: number;
+      sceneCount?: number;
       knownDetails?: Array<{ question: string; value: string }>;
       attempt?: number;
     },
@@ -235,9 +246,16 @@ export class StudioService {
         .catch(() => undefined);
 
     try {
+      const imageCount = await this.deps.prisma.studioAsset.count({
+        where: { presentationId, mimeType: { startsWith: 'image/' } },
+      });
       const result = await this.generation.generate(organizationId, prompt, {
         ...options,
+        sceneCount: options.sceneCount ?? config.studio.targetScenes,
+        hasImages: imageCount > 0,
         maxRounds: config.studio.maxClarificationRounds,
+        readinessThreshold: config.studio.readinessThreshold,
+        maxQuestions: config.studio.maxQuestions,
         onProgress: async (percent, note) => {
           await this.deps.prisma.studioPresentation.update({
             where: { id: presentationId },
@@ -247,9 +265,10 @@ export class StudioService {
         },
       });
 
-      // Missing critical evidence (and rounds remain) → persist the questions and
-      // await answers. The engine already dropped anything already answered and
-      // suppresses questions entirely on the final round, so this can't loop.
+      // Missing a decision only the user can make (and rounds remain) → persist
+      // the questions and await answers. The readiness gate already dropped
+      // anything already answered and suppresses questions entirely on the final
+      // round, so this can't loop.
       if (result.clarifications.length > 0) {
         await this.deps.prisma.studioPresentation.update({
           where: { id: presentationId },
@@ -258,6 +277,7 @@ export class StudioService {
             generationProgress: null,
             intent: result.intent as unknown as Prisma.InputJsonValue,
             clarifications: result.clarifications as unknown as Prisma.InputJsonValue,
+            readiness: result.readiness as unknown as Prisma.InputJsonValue,
             sourceRefs: result.sourceRefs as unknown as Prisma.InputJsonValue,
           },
         });
@@ -265,13 +285,22 @@ export class StudioService {
         return;
       }
 
+      // Give every scene a persistent id, art-direct the user's uploaded imagery
+      // into scenes built to hold it, then re-derive the deck so the website and
+      // the slides can never disagree about what the story is.
+      const story = result.story ? await this.finalizeStory(presentationId, result.story) : null;
+      const slides = story ? scenesToSlides(story.scenes) : result.slides;
+
       // Persist slides atomically (replace any prior slides on regeneration).
-      const coverTitle = result.slides.find((s) => s.layout === 'cover')?.content.title;
+      const coverTitle = story?.title ?? slides.find((s) => s.layout === 'cover')?.content.title;
       await this.deps.prisma.$transaction([
         this.deps.prisma.studioSlide.deleteMany({ where: { presentationId } }),
-        ...result.slides.map((s, index) =>
+        ...slides.map((s, index) =>
           this.deps.prisma.studioSlide.create({
             data: {
+              // Scene id === slide id: the two projections stay addressable by
+              // the same key, which is what lets an editor edit sync back.
+              id: s.id,
               presentationId,
               organizationId,
               index,
@@ -291,6 +320,8 @@ export class StudioService {
             generationError: null,
             themeId: options.themeId ?? result.intent.themeId,
             intent: result.intent as unknown as Prisma.InputJsonValue,
+            storySpec: story as unknown as Prisma.InputJsonValue,
+            readiness: result.readiness as unknown as Prisma.InputJsonValue,
             clarifications: [],
             sourceRefs: result.sourceRefs as unknown as Prisma.InputJsonValue,
             ...(coverTitle ? { title: coverTitle } : {}),
@@ -321,6 +352,73 @@ export class StudioService {
     }
   }
 
+  /**
+   * Push an editor change back into the scene it came from.
+   *
+   * Only the fields the two projections genuinely share are copied — headline,
+   * supporting line, points, notes. Scene-native payloads (diagram geometry,
+   * motion, tone) have no slide equivalent and are deliberately left untouched,
+   * so editing a slide can never silently flatten the website.
+   */
+  private async syncSceneFromSlide(
+    presentationId: string,
+    slideId: string,
+    body: UpdateSlideBody,
+  ): Promise<StoryExperience | null> {
+    if (body.content === undefined && body.notes === undefined) return null;
+    const row = await this.deps.prisma.studioPresentation.findUnique({
+      where: { id: presentationId },
+      select: { storySpec: true },
+    });
+    const story = row?.storySpec as StoryExperience | null;
+    if (!story?.scenes?.length) return null;
+    if (!story.scenes.some((scene) => scene.id === slideId)) return null;
+
+    const content = (body.content ?? {}) as SlideContent;
+    const scenes: StoryScene[] = story.scenes.map((scene) => {
+      if (scene.id !== slideId) return scene;
+      const next: StoryScene = { ...scene };
+      if (body.notes !== undefined) next.notes = body.notes;
+      if (body.content !== undefined) {
+        if (content.title) next.title = content.title;
+        next.eyebrow = content.eyebrow || undefined;
+        // A `statement` scene is one sentence by design; never let an edit
+        // reintroduce the body copy the composition rules stripped.
+        if (scene.kind !== 'statement') next.body = content.subtitle || content.body || undefined;
+        if (content.bullets) next.points = content.bullets.map((b) => b.text).filter(Boolean);
+        if (content.metrics) next.metrics = content.metrics;
+        if (content.timeline) next.timeline = content.timeline;
+        if (content.quote) next.quote = content.quote;
+      }
+      return next;
+    });
+    return { ...story, scenes };
+  }
+
+  /**
+   * Prepare a freshly composed story for storage: stable uuid identities (shared
+   * with the derived slides) and art-directed placement of any imagery the user
+   * uploaded before generation finished.
+   */
+  private async finalizeStory(
+    presentationId: string,
+    story: StoryExperience,
+  ): Promise<StoryExperience> {
+    const presentation = await this.deps.prisma.studioPresentation.findUnique({
+      where: { id: presentationId },
+      select: { coverAssetId: true, assets: { select: { id: true, mimeType: true } } },
+    });
+
+    // The cover asset is the brand logo — it belongs to the chrome (header,
+    // intro, watermark, footer), never dropped into a scene as content.
+    const imageIds = (presentation?.assets ?? [])
+      .filter((a) => a.mimeType.startsWith('image/') && a.id !== presentation?.coverAssetId)
+      .map((a) => a.id);
+
+    const identified = story.scenes.map((scene) => ({ ...scene, id: randomUUID() }));
+    return { ...story, scenes: placeImagery(identified, imageIds) };
+  }
+
   // ── Deck-level edits ──────────────────────────────────────────────────────────
 
   async updatePresentation(
@@ -345,6 +443,26 @@ export class StudioService {
         if (!asset) throw new NotFoundError('Brand asset not found in this story');
       }
       data.coverAssetId = body.coverAssetId;
+    }
+    if (body.paletteId !== undefined) {
+      // Re-art-direct in place. Palettes are pure tokens, so switching one is a
+      // instant restyle of the website, presenter and exports — no regeneration.
+      if (body.paletteId && !ART_DIRECTIONS[body.paletteId]) {
+        throw new NotFoundError('Unknown palette');
+      }
+      data.paletteId = body.paletteId;
+      const story = p.storySpec as StoryExperience | null;
+      if (story) {
+        const art = resolveArtDirection({
+          direction: (
+            p.intent as {
+              creativeDirection?: Parameters<typeof resolveArtDirection>[0]['direction'];
+            } | null
+          )?.creativeDirection,
+          paletteId: body.paletteId,
+        });
+        data.storySpec = { ...story, art } as unknown as Prisma.InputJsonValue;
+      }
     }
     if (Object.keys(data).length) {
       ops.push(this.deps.prisma.studioPresentation.update({ where: { id }, data }));
@@ -430,9 +548,16 @@ export class StudioService {
     if (body.notes !== undefined) data.notes = body.notes;
 
     await this.deps.prisma.studioSlide.update({ where: { id: slideId }, data });
+    // Editing a slide must also change the website, or the two outputs drift and
+    // the product stops feeling like one thing. Scene id === slide id makes this
+    // a direct write rather than a fuzzy match.
+    const storySpec = await this.syncSceneFromSlide(id, slideId, body);
     await this.deps.prisma.studioPresentation.update({
       where: { id },
-      data: { updatedAt: new Date() },
+      data: {
+        updatedAt: new Date(),
+        ...(storySpec ? { storySpec: storySpec as unknown as Prisma.InputJsonValue } : {}),
+      },
     });
     return this.get(organizationId, id);
   }
@@ -561,13 +686,29 @@ export class StudioService {
     return { id: asset.id, url };
   }
 
-  async exportPptx(
+  /**
+   * Every export is a projection of the one stored story — never a
+   * regeneration — so the deck, the PDF and the downloadable site always agree.
+   */
+  async exportAs(
     organizationId: string,
     id: string,
+    format: 'pptx' | 'pdf' | 'source',
     author?: string,
-  ): Promise<{ buffer: Buffer; fileName: string }> {
+  ): Promise<{ buffer: Buffer; fileName: string; contentType: string }> {
     const p = await requirePresentation(this.deps.prisma, organizationId, id);
-    return this.export.toPptx(p, author);
+    switch (format) {
+      case 'pdf':
+        return { ...(await this.export.toPdf(p, author)), contentType: 'application/pdf' };
+      case 'source':
+        return { ...(await this.export.toSourceZip(p)), contentType: 'application/zip' };
+      case 'pptx':
+      default:
+        return {
+          ...(await this.export.toPptx(p, author)),
+          contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        };
+    }
   }
 
   async remove(organizationId: string, userId: string, id: string): Promise<void> {
