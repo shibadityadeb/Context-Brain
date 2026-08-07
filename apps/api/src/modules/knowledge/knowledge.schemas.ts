@@ -14,6 +14,11 @@ export const documentIdParamsSchema = z.object({
   documentId: z.string().uuid(),
 });
 
+/** `original` streams the stored bytes; `pdf` renders the document to PDF. */
+export const downloadDocumentQuerySchema = z.object({
+  format: z.enum(['original', 'pdf']).default('original'),
+});
+
 export const searchBodySchema = z.object({
   query: z.string().min(1).max(2000),
   limit: z.coerce.number().int().positive().max(50).default(10),

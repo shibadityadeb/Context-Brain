@@ -9,6 +9,7 @@ const EXAMPLES = [
   'Schedule a follow-up meeting with Rahul next week',
   'Draft a thank-you email to everyone in yesterday’s meeting',
   'Research our top 3 competitors and write a one-page summary',
+  'Turn our latest strategy doc into a PDF',
 ];
 
 /**

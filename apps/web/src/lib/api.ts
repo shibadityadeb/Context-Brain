@@ -242,6 +242,39 @@ export const api = {
     return request(`/api/v1/knowledge/documents/${documentId}/chunks`);
   },
 
+  /**
+   * Fetch a document with auth and hand it to the browser as a download.
+   * `format: 'pdf'` asks the API to render it — the same renderer the Action
+   * Layer uses, so any document can be taken away as a PDF.
+   */
+  async downloadDocument(
+    documentId: string,
+    format: 'original' | 'pdf' = 'original',
+    fileName?: string,
+  ): Promise<void> {
+    const token = getAccessToken();
+    const res = await fetch(
+      `${API_URL}/api/v1/knowledge/documents/${documentId}/download?format=${format}`,
+      { credentials: 'include', headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as ApiResponse | null;
+      throw new ApiRequestError(body?.message ?? 'Download failed', res.status, null);
+    }
+    // Prefer the name the API set; it knows the rendered extension.
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const suggested = /filename="([^"]+)"/.exec(disposition)?.[1];
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggested ?? fileName ?? `document.${format === 'pdf' ? 'pdf' : 'bin'}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
   getProcessingStatus(documentId: string): Promise<ProcessingStatus> {
     return request(`/api/v1/knowledge/documents/${documentId}/status`);
   },

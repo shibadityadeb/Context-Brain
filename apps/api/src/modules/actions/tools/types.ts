@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import type { PrismaClient } from '@prisma/client';
 import type { LLMProvider } from '@company-brain/knowledge-engine';
 import type { OpenClawLogLine } from '../openclaw/types.js';
@@ -6,6 +7,8 @@ import type { GoogleActionClient } from './google-client.js';
 /** Minimal object-storage surface a tool needs (satisfied by StorageService). */
 export interface StoragePort {
   upload(key: string, buffer: Buffer, opts: { contentType: string }): Promise<unknown>;
+  /** Reading back is what lets a tool convert a document it did not write. */
+  download(key: string, bucket?: string): Promise<Readable>;
 }
 
 /** Everything a built-in tool handler is given to do real work. */

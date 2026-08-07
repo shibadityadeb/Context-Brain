@@ -41,6 +41,9 @@ importers:
       '@company-brain/connector-google':
         specifier: workspace:*
         version: link:../../packages/connectors/google
+      '@company-brain/docgen':
+        specifier: workspace:*
+        version: link:../../packages/docgen
       '@company-brain/events':
         specifier: workspace:*
         version: link:../../packages/events
@@ -354,6 +357,28 @@ importers:
       '@company-brain/config':
         specifier: workspace:*
         version: link:../../config
+      '@types/node':
+        specifier: ^22.14.1
+        version: 22.20.1
+      eslint:
+        specifier: ^9.24.0
+        version: 9.39.5(jiti@2.7.0)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.1
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0)
+
+  packages/docgen:
+    dependencies:
+      pdf-lib:
+        specifier: ^1.17.1
+        version: 1.17.1
+    devDependencies:
+      '@company-brain/config':
+        specifier: workspace:*
+        version: link:../config
       '@types/node':
         specifier: ^22.14.1
         version: 22.20.1

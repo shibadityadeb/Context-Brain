@@ -12,6 +12,7 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
+  FileDown,
   FileText,
   HelpCircle,
   Loader2,
@@ -28,7 +29,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/primitives';
-import type { ActionDetail, ActionStepView, EditActionStep } from '@/lib/api';
+import { api, type ActionDetail, type ActionStepView, type EditActionStep } from '@/lib/api';
 import { ACTION_STATUS, STEP_STATUS, timeAgo, typeLabel } from './status';
 
 interface Draft {
@@ -637,6 +638,10 @@ interface Artifact {
   label: string;
   href: string | null;
   external: boolean;
+  /** A Brain document, so it can also be taken away as a file. */
+  documentId?: string;
+  /** The format the document was produced in — drives the download offered. */
+  format?: 'pdf' | 'markdown';
 }
 
 /** Turn a step's execution output into a human link to what it really created. */
@@ -652,13 +657,17 @@ function artifactFor(output: unknown): Artifact | null {
       href: str('url'),
       external: false,
     };
-  if (str('documentId'))
+  if (str('documentId')) {
+    const pdf = str('format') === 'pdf' || str('mimeType') === 'application/pdf';
     return {
-      icon: FileText,
-      label: `Document: ${str('title') ?? 'generated'}`,
+      icon: pdf ? FileDown : FileText,
+      label: `${pdf ? 'PDF' : 'Document'}: ${str('title') ?? 'generated'}`,
       href: str('url'),
       external: false,
+      documentId: str('documentId')!,
+      format: pdf ? 'pdf' : 'markdown',
     };
+  }
   if (str('eventId')) {
     const meet = str('meetUrl');
     return {
@@ -702,30 +711,73 @@ function ProducedArtifacts({ steps }: { steps: ActionStepView[] }) {
           );
           const cls =
             'flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm transition-colors';
-          if (!a.href) {
-            return (
-              <div key={i} className={cls}>
-                {inner}
-              </div>
-            );
-          }
-          return a.external ? (
+          const row = !a.href ? (
+            <div className={`${cls} min-w-0 flex-1`}>{inner}</div>
+          ) : a.external ? (
             <a
-              key={i}
               href={a.href}
               target="_blank"
               rel="noreferrer"
-              className={`${cls} hover:border-ai/40`}
+              className={`${cls} min-w-0 flex-1 hover:border-ai/40`}
             >
               {inner}
             </a>
           ) : (
-            <Link key={i} href={a.href} className={`${cls} hover:border-ai/40`}>
+            <Link href={a.href} className={`${cls} min-w-0 flex-1 hover:border-ai/40`}>
               {inner}
             </Link>
+          );
+
+          return (
+            <div key={i} className="flex items-center gap-1.5">
+              {row}
+              {a.documentId && <DownloadPdfButton documentId={a.documentId} format={a.format} />}
+            </div>
           );
         })}
       </div>
     </section>
+  );
+}
+
+/**
+ * Take a produced document away as a PDF. A document already rendered as PDF
+ * downloads as stored; anything else is rendered by the API on request, so
+ * every document an action produces can leave as a PDF.
+ */
+function DownloadPdfButton({
+  documentId,
+  format,
+}: {
+  documentId: string;
+  format?: 'pdf' | 'markdown';
+}) {
+  const [state, setState] = useState<'idle' | 'busy' | 'error'>('idle');
+
+  async function download() {
+    setState('busy');
+    try {
+      await api.downloadDocument(documentId, format === 'pdf' ? 'original' : 'pdf');
+      setState('idle');
+    } catch {
+      setState('error');
+    }
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={download}
+      disabled={state === 'busy'}
+      title={format === 'pdf' ? 'Download the PDF' : 'Download this document as a PDF'}
+    >
+      {state === 'busy' ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <FileDown className="h-3.5 w-3.5" />
+      )}
+      <span className="ml-1">{state === 'error' ? 'Retry PDF' : 'PDF'}</span>
+    </Button>
   );
 }
