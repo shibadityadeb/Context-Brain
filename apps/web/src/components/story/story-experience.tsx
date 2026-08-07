@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { artDirectionCssVars } from '@company-brain/studio';
 import { studioApi, type StudioDetail } from '@/lib/api';
 import { LogoIntro, SceneRail, ScrollProgress, StoryHeader, useActiveScene } from './chrome';
+import { StoryDirector } from './director';
 import { resolveStory } from './lib/legacy';
 import { useReducedMotionSafe } from './lib/motion';
 import { SCENE_COMPONENTS } from './scenes';
@@ -20,9 +21,20 @@ import { SCENE_COMPONENTS } from './scenes';
  * so every scene, every diagram and the print sheet all read from one set of
  * tokens — and swapping the palette restyles the entire site instantly.
  */
-export function StoryExperience({ detail }: { detail: StudioDetail }) {
+export function StoryExperience({
+  detail: initial,
+  editable = true,
+}: {
+  detail: StudioDetail;
+  /** Off for a read-only share of the story. */
+  editable?: boolean;
+}) {
   const reduced = useReducedMotionSafe();
   const [downloading, setDownloading] = useState<string | null>(null);
+  // Revisions replace the story in place, so the reader sees the change land
+  // without a reload or losing their scroll position.
+  const [detail, setDetail] = useState(initial);
+  useEffect(() => setDetail(initial), [initial]);
 
   const story = useMemo(() => resolveStory(detail), [detail]);
 
@@ -112,6 +124,7 @@ export function StoryExperience({ detail }: { detail: StudioDetail }) {
         }}
       />
       <SceneRail scenes={scenes} active={active} />
+      {editable && <StoryDirector detail={detail} art={story.art} onUpdated={setDetail} />}
 
       {scenes.map((scene) => {
         const Scene = SCENE_COMPONENTS[scene.kind];

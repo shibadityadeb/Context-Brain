@@ -86,6 +86,12 @@ export const updateSlideSchema = z.object({
 });
 export type UpdateSlideBody = z.infer<typeof updateSlideSchema>;
 
+/** Conversational revision of the whole story ("drop the pricing scene"). */
+export const directStorySchema = z.object({
+  instruction: z.string().min(2).max(2000),
+});
+export type DirectStoryBody = z.infer<typeof directStorySchema>;
+
 /** Single-slide copilot instruction. */
 export const copilotSchema = z.object({
   instruction: z.string().min(2).max(2000),

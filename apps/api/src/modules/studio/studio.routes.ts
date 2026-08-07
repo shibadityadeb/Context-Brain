@@ -12,6 +12,7 @@ import {
   copilotSchema,
   createPresentationSchema,
   createSlideSchema,
+  directStorySchema,
   exportParamsSchema,
   listPresentationsQuerySchema,
   slideIdParamsSchema,
@@ -277,6 +278,53 @@ export default async function studioRoutes(fastify: FastifyInstance): Promise<vo
             request.params.slideId,
           ),
         ),
+      );
+    },
+  );
+
+  // ── Director: revise the whole story conversationally ─────────────────────────
+  app.post(
+    '/:id/direct',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Revise the story from a natural-language instruction',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+        body: directStorySchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(
+          await service.directStory(
+            organizationId,
+            request.user!.id,
+            request.params.id,
+            request.body,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.post(
+    '/:id/revert',
+    {
+      preHandler: [authenticate],
+      schema: {
+        tags: ['studio'],
+        summary: 'Undo the most recent revision',
+        security: [{ bearerAuth: [] }],
+        params: studioIdParamsSchema,
+      },
+    },
+    async (request, reply) => {
+      const organizationId = await service.resolveOrganization(request.user!.id);
+      return reply.send(
+        ok(await service.revertStory(organizationId, request.user!.id, request.params.id)),
       );
     },
   );

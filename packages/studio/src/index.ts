@@ -14,3 +14,4 @@ export * from './story/compose.js';
 export * from './story/derive.js';
 export * from './story/prompt.js';
 export * from './story/parse.js';
+export * from './story/direct.js';

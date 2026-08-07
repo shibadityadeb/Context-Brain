@@ -2930,6 +2930,28 @@ export const studioApi = {
     URL.revokeObjectURL(url);
   },
 
+  /** Revise the whole story from a natural-language instruction. */
+  direct(
+    id: string,
+    instruction: string,
+  ): Promise<{
+    detail: StudioDetail;
+    reply: string;
+    changes: string[];
+    refusal: string | null;
+    changed: boolean;
+  }> {
+    return request(`/api/v1/studio/${id}/direct`, {
+      method: 'POST',
+      body: JSON.stringify({ instruction }),
+    });
+  },
+
+  /** Undo the most recent revision. */
+  revert(id: string): Promise<{ detail: StudioDetail; reverted: boolean }> {
+    return request(`/api/v1/studio/${id}/revert`, { method: 'POST' });
+  },
+
   /** @deprecated use `download(id, 'pptx', name)`. */
   exportPptx(id: string, fileName: string): Promise<void> {
     return studioApi.download(id, 'pptx', fileName);

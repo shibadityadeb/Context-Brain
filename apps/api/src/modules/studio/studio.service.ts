@@ -21,10 +21,11 @@ import {
   type StoryScene,
 } from '@company-brain/studio';
 import { config } from '../../config/index.js';
-import { ForbiddenError, NotFoundError } from '../../utils/errors.js';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 import type { StorageService } from '../../services/storage.service.js';
 import { StudioAccessControl } from './access-control.service.js';
 import { CopilotService, type CopilotResult } from './copilot.service.js';
+import { DirectorService, type DirectionOutcome } from './director.service.js';
 import { GenerationService } from './generation.service.js';
 import { ExportService } from './export.service.js';
 import { requirePresentation, reindexSlides } from './studio.store.js';
@@ -39,6 +40,7 @@ import type {
   AnswerPresentationBody,
   CopilotBody,
   CreatePresentationBody,
+  DirectStoryBody,
   CreateSlideBody,
   ListPresentationsQuery,
   UpdatePresentationBody,
@@ -72,6 +74,7 @@ export class StudioService {
   private readonly events: EventBus;
   readonly generation: GenerationService;
   readonly copilot: CopilotService;
+  readonly director: DirectorService;
   readonly export: ExportService;
   readonly access = new StudioAccessControl();
 
@@ -86,6 +89,7 @@ export class StudioService {
     this.events = new EventBus(this.deps.redis);
     this.generation = new GenerationService({ llm: this.llm, retrieval: this.retrieval });
     this.copilot = new CopilotService({ llm: this.llm, retrieval: this.retrieval });
+    this.director = new DirectorService({ llm: this.llm, retrieval: this.retrieval });
     this.export = new ExportService({ storage: this.deps.storage });
   }
 
@@ -615,6 +619,155 @@ export class StudioService {
     await this.deps.prisma.studioSlide.delete({ where: { id: slideId } });
     await reindexSlides(this.deps.prisma, id);
     return this.get(organizationId, id);
+  }
+
+  // ── Director (conversational revision of the whole story) ─────────────────────
+
+  /**
+   * "I didn't like that — change it."
+   *
+   * Snapshots the current story before applying anything, so every revision is
+   * one click from being undone. Without that, a bad instruction would cost the
+   * user work they'd already approved — and the whole point of directing rather
+   * than regenerating is that approved work survives.
+   */
+  async directStory(
+    organizationId: string,
+    userId: string,
+    id: string,
+    body: DirectStoryBody,
+  ): Promise<{
+    detail: PresentationDetail;
+    reply: string;
+    changes: string[];
+    refusal: string | null;
+    changed: boolean;
+  }> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+
+    const story = p.storySpec as StoryExperience | null;
+    if (!story?.scenes?.length) {
+      throw new BadRequestError('This story has no scenes to revise yet');
+    }
+
+    const outcome: DirectionOutcome = await this.director.direct({
+      organizationId,
+      story,
+      instruction: body.instruction,
+      newSceneId: () => randomUUID(),
+    });
+
+    if (!outcome.changed) {
+      return {
+        detail: await this.get(organizationId, id),
+        reply: outcome.reply,
+        changes: outcome.changes,
+        refusal: outcome.refusal,
+        changed: false,
+      };
+    }
+
+    const nextVersion = p.currentVersion + 1;
+    const slides = scenesToSlides(outcome.story.scenes);
+
+    await this.deps.prisma.$transaction([
+      // The snapshot is of the story BEFORE this revision — that is what revert
+      // restores.
+      this.deps.prisma.studioVersion.create({
+        data: {
+          presentationId: id,
+          organizationId,
+          version: p.currentVersion,
+          snapshot: story as unknown as Prisma.InputJsonValue,
+          changeType: 'direction',
+          changedBy: userId,
+        },
+      }),
+      this.deps.prisma.studioSlide.deleteMany({ where: { presentationId: id } }),
+      ...slides.map((s, index) =>
+        this.deps.prisma.studioSlide.create({
+          data: {
+            id: s.id,
+            presentationId: id,
+            organizationId,
+            index,
+            layout: s.layout,
+            content: s.content as unknown as Prisma.InputJsonValue,
+            notes: s.notes,
+            sources: s.sources as unknown as Prisma.InputJsonValue,
+            confidence: s.confidence,
+          },
+        }),
+      ),
+      this.deps.prisma.studioPresentation.update({
+        where: { id },
+        data: {
+          storySpec: outcome.story as unknown as Prisma.InputJsonValue,
+          title: outcome.story.title,
+          paletteId: outcome.story.art.paletteId,
+          currentVersion: nextVersion,
+        },
+      }),
+    ]);
+
+    return {
+      detail: await this.get(organizationId, id),
+      reply: outcome.reply,
+      changes: outcome.changes,
+      refusal: outcome.refusal,
+      changed: true,
+    };
+  }
+
+  /** Step back to the story as it was before the most recent revision. */
+  async revertStory(
+    organizationId: string,
+    userId: string,
+    id: string,
+  ): Promise<{ detail: PresentationDetail; reverted: boolean }> {
+    const p = await requirePresentation(this.deps.prisma, organizationId, id);
+    this.access.assertCanEdit(userId, p);
+
+    const previous = await this.deps.prisma.studioVersion.findFirst({
+      where: { presentationId: id },
+      orderBy: { version: 'desc' },
+    });
+    if (!previous) return { detail: await this.get(organizationId, id), reverted: false };
+
+    const story = previous.snapshot as unknown as StoryExperience;
+    const slides = scenesToSlides(story.scenes);
+
+    await this.deps.prisma.$transaction([
+      this.deps.prisma.studioSlide.deleteMany({ where: { presentationId: id } }),
+      ...slides.map((s, index) =>
+        this.deps.prisma.studioSlide.create({
+          data: {
+            id: s.id,
+            presentationId: id,
+            organizationId,
+            index,
+            layout: s.layout,
+            content: s.content as unknown as Prisma.InputJsonValue,
+            notes: s.notes,
+            sources: s.sources as unknown as Prisma.InputJsonValue,
+            confidence: s.confidence,
+          },
+        }),
+      ),
+      this.deps.prisma.studioPresentation.update({
+        where: { id },
+        data: {
+          storySpec: story as unknown as Prisma.InputJsonValue,
+          title: story.title,
+          paletteId: story.art.paletteId,
+          currentVersion: previous.version,
+        },
+      }),
+      this.deps.prisma.studioVersion.delete({ where: { id: previous.id } }),
+    ]);
+
+    return { detail: await this.get(organizationId, id), reverted: true };
   }
 
   // ── Copilot ───────────────────────────────────────────────────────────────────
