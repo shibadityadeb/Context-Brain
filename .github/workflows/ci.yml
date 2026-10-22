@@ -10,6 +10,34 @@ jobs:
   ci:
     name: Install · Lint · Test · Build
     runs-on: ubuntu-latest
+    # Real services for the API integration suite. Ports match
+    # infrastructure/docker/docker-compose.test.yml, so the suite's defaults
+    # work unchanged locally and here.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: brain
+          POSTGRES_PASSWORD: brain_test_password
+          POSTGRES_DB: company_brain_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U brain -d company_brain_test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+      # No health-cmd (the image has no curl); the suite's global setup waits
+      # for Qdrant before running.
+      qdrant:
+        image: qdrant/qdrant:v1.18.0
+        ports:
+          - 56333:6333
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,6 +68,11 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # Global setup waits for the services and runs `prisma migrate deploy`
+      # against the test database before any test file loads.
+      - name: Integration test
+        run: pnpm test:integration
 
       - name: Build
         run: pnpm build

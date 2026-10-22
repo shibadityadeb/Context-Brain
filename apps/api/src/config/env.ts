@@ -4,8 +4,12 @@ import { z } from 'zod';
 
 // Local .env wins over the repo-root .env (dotenv never overrides
 // already-set variables, so load order = precedence order).
-loadDotenv({ path: resolve(process.cwd(), '.env') });
-loadDotenv({ path: resolve(process.cwd(), '../../.env') });
+// SKIP_DOTENV=true makes the environment hermetic — the integration suite sets
+// it so a developer's real .env (live API keys, dev database) can never leak in.
+if (process.env.SKIP_DOTENV !== 'true') {
+  loadDotenv({ path: resolve(process.cwd(), '.env') });
+  loadDotenv({ path: resolve(process.cwd(), '../../.env') });
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

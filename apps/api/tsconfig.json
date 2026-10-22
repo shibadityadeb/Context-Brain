@@ -5,5 +5,5 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src", "tests", "prisma/seed.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "prisma/seed.ts", "vitest.config.ts", "vitest.integration.config.ts"]
 }

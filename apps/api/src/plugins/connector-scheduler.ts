@@ -19,12 +19,16 @@ export default fp(
     });
 
     // Don't block readiness on Temporal; reconcile shortly after boot.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       void service
         .reconcileIncrementalSchedules()
         .then((count) => app.log.info({ connectors: count }, 'incremental sync schedules ensured'))
         .catch((err) => app.log.error({ err }, 'failed to reconcile incremental sync schedules'));
-    }, 3_000).unref?.();
+    }, 3_000);
+    timer.unref?.();
+    // An app closed before the timer fires (shutdown, tests) must not
+    // reconcile against already-closed Prisma/Redis connections.
+    app.addHook('onClose', async () => clearTimeout(timer));
   },
   { name: 'connector-scheduler', dependencies: ['prisma', 'redis', 'services'] },
 );

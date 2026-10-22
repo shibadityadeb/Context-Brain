@@ -3,6 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    // Needs real services; runs separately via vitest.integration.config.ts.
+    exclude: ['tests/integration/**'],
     environment: 'node',
     // Runs before any test module is imported, so a suite that pulls in
     // `src/config` (which fails fast on missing secrets) works on a CI runner
