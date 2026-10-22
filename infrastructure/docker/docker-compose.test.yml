@@ -1,0 +1,51 @@
+# Throwaway services for the API integration suite (`pnpm test:integration`).
+#
+#   pnpm test:infra:up     # start and wait until healthy
+#   pnpm test:integration
+#   pnpm test:infra:down   # stop and discard all data
+#
+# Data lives on tmpfs, so every `up` starts empty. Ports deliberately differ
+# from docker-compose.yml so the suite can never touch the dev stack; CI maps
+# its service containers to the same ports (see .github/workflows/ci.yml).
+name: company-brain-test
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: brain_test_password
+      POSTGRES_DB: company_brain_test
+    ports:
+      - '127.0.0.1:55432:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U brain -d company_brain_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '127.0.0.1:56379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    ports:
+      - '127.0.0.1:56333:6333'
+    tmpfs:
+      - /qdrant/storage
+    healthcheck:
+      # The image ships without curl; probe the HTTP port with bash.
+      test: ['CMD', 'bash', '-c', ':> /dev/tcp/127.0.0.1/6333']
+      interval: 2s
+      timeout: 3s
+      retries: 30
